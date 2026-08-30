@@ -23,10 +23,10 @@ jobs:
         run: git config --global core.autocrlf input
 
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -96,7 +96,7 @@ jobs:
           $checksums | Set-Content "release\SHA256SUMS.txt" -Encoding ascii
 
       - name: Retain workflow artefacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SermonCompanion-${{ github.ref_name }}-windows-x86_64
           path: release/*
