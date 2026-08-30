@@ -32,8 +32,8 @@ performs disk or process I/O.
 | Backend | Use | Timing |
 | --- | --- | --- |
 | `miniaudio` | Primary macOS and Windows device capture | Accepted audio frames |
-| `ffmpeg` + `lavfi` | Deterministic demo and integration tests | Estimated wall time |
-| `ffmpeg` + device/custom driver | Explicit diagnostic fallback | Estimated wall time |
+| `ffmpeg` + `lavfi` | Deterministic demo and integration tests | Reported encoded position |
+| `ffmpeg` + device/custom driver | Explicit diagnostic fallback | Reported encoded position |
 
 The default recording format is stereo, 48 kHz, signed 16-bit PCM encoded to
 FLAC. A future OBS raw-mix source can feed the same queue and frame clock without
@@ -48,6 +48,12 @@ the callback following the button event and interpolates between the surrounding
 frame anchors. The stored frame number is canonical; seconds are derived for the
 browser. Device-clock drift therefore cannot accumulate between a marker and the
 recorded file.
+
+The fallback FFmpeg backend has no callback, so it anchors the same clock to the
+audio position FFmpeg reports through `-progress` every 200 ms. Device start-up
+latency and encoder pacing therefore stay out of the marker positions; an
+elapsed wall-clock estimate placed every mark about half a second ahead of the
+matching audio. This needs FFmpeg 4.4 or later for `-stats_period`.
 
 The PCM queue defaults to ten seconds. If it fills, capture stops and the session
 is marked failed rather than silently dropping samples. A completed capture is

@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -289,7 +288,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		session.Segments = append(session.Segments, segment)
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session)
+		syncSegmentFrames(session, s.config.Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -387,7 +386,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session)
+		syncSegmentFrames(session, s.config.Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -446,7 +445,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session)
+		syncSegmentFrames(session, s.config.Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -542,6 +541,13 @@ func (s *Server) audio(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	// The recording grows under a fixed name, so a partial response must never
+	// be reused for the finished file.
+	if session.Status == "recording" || session.Status == "starting" {
+		w.Header().Set("Cache-Control", "no-store")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
 	}
 	dir, _ := s.store.SessionDir(session.ID)
 	serveFile(w, r, filepath.Join(dir, session.AudioFile), "audio/flac", false)
@@ -650,8 +656,8 @@ func secondsToFrame(seconds float64, sampleRate int) uint64 {
 	return uint64(math.Round(seconds * float64(sampleRate)))
 }
 
-func syncSegmentFrames(session *store.Session) {
-	rate := sessionSampleRate(session, 48_000)
+func syncSegmentFrames(session *store.Session, fallbackRate int) {
+	rate := sessionSampleRate(session, fallbackRate)
 	for index := range session.Segments {
 		segment := &session.Segments[index]
 		segment.StartFrame = secondsToFrame(segment.Start, rate)
@@ -725,12 +731,4 @@ func writeJSON(w http.ResponseWriter, status int, value interface{}) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
-}
-
-func normalisedSegments(session *store.Session) []store.Segment {
-	segments := append([]store.Segment(nil), session.Segments...)
-	sort.SliceStable(segments, func(i, j int) bool {
-		return segments[i].Start < segments[j].Start || math.Abs(segments[i].Start-segments[j].Start) < 1e-9 && segments[i].CreatedAt.Before(segments[j].CreatedAt)
-	})
-	return segments
 }

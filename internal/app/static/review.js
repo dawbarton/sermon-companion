@@ -18,6 +18,7 @@ let sessions = [];
 let playingSegmentID = null;
 let waveform = emptyWaveform();
 let dragState = null;
+let audioSource = null;
 
 function emptyWaveform() {
   return {sessionID: null, peaks: null, pointsPerSecond: 20, duration: 0, viewStart: 0, viewEnd: 1, loading: false};
@@ -43,9 +44,20 @@ async function selectSession(id) {
     current = await api(`/api/sessions/${id}`);
     waveform = emptyWaveform();
     render();
-    void loadWaveform(id);
+    if (!isRecording(current)) void loadWaveform(id);
     await loadSessions();
   } catch (error) { showError(error); }
+}
+
+function isRecording(session) { return session?.status === "recording" || session?.status === "starting"; }
+
+// The recording grows under a fixed path, so the finished file is a different
+// resource at the same URL. Keying the source on the published duration makes
+// the player reload the complete recording instead of keeping the partial one
+// it fetched while the service was still being recorded.
+function audioSourceFor(session) {
+  if (!session || isRecording(session)) return null;
+  return `/api/sessions/${session.id}/audio?duration=${session.durationSeconds || 0}`;
 }
 
 async function loadWaveform(id) {
@@ -83,8 +95,14 @@ function render() {
   const capture = current.capture || {};
   const captureText = capture.sampleRate ? ` · ${capture.sampleRate/1000} kHz · ${capture.droppedFrames || 0} dropped frames` : "";
   elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}${captureText}`;
-  const audioURL = `/api/sessions/${current.id}/audio`;
-  if (!elements.audio.src.endsWith(audioURL)) elements.audio.src = audioURL;
+  const wanted = audioSourceFor(current);
+  if (wanted !== audioSource) {
+    audioSource = wanted;
+    stopSegmentPlayback();
+    if (wanted) elements.audio.src = wanted;
+    else elements.audio.removeAttribute("src");
+    elements.audio.load();
+  }
   renderSegmentRows();
   elements.markers.replaceChildren(...[...current.markers].sort((a,b) => a.atSeconds-b.atSeconds).map(markerRow));
   renderWaveform();
@@ -220,16 +238,18 @@ function drawWaveform() {
   ctx.fillStyle = "#0b1015"; ctx.fillRect(0, 0, width, height);
   ctx.strokeStyle = "#26313b"; ctx.beginPath(); ctx.moveTo(0, height/2); ctx.lineTo(width, height/2); ctx.stroke();
   if (!waveform.peaks) return;
+  // Each column covers the peaks for the time it represents, so a recorded
+  // duration longer than the decoded audio leaves empty space at the end
+  // instead of stretching the waveform away from the segments and playhead.
   const pps = waveform.pointsPerSecond;
-  const first = Math.max(0, Math.floor(waveform.viewStart * pps));
-  const last = Math.min(waveform.peaks.length, Math.ceil(waveform.viewEnd * pps));
-  const points = Math.max(1, last-first);
+  const span = Math.max(.001, waveform.viewEnd-waveform.viewStart);
   ctx.fillStyle = "#56bd8b";
   for (let x = 0; x < width; x++) {
-    const from = first + Math.floor(x*points/width);
-    const to = Math.max(from+1, first + Math.ceil((x+1)*points/width));
+    const from = Math.max(0, Math.floor((waveform.viewStart+x*span/width)*pps));
+    const to = Math.min(waveform.peaks.length, Math.max(from+1, Math.ceil((waveform.viewStart+(x+1)*span/width)*pps)));
+    if (from >= waveform.peaks.length) break;
     let peak = 0;
-    for (let index = from; index < Math.min(to, last); index++) peak = Math.max(peak, waveform.peaks[index]);
+    for (let index = from; index < to; index++) peak = Math.max(peak, waveform.peaks[index]);
     const amplitude = Math.max(1, peak/255*(height*.43));
     ctx.fillRect(x, height/2-amplitude, 1, amplitude*2);
   }
@@ -311,6 +331,7 @@ async function finishDrag() {
   if (!state) return;
   const segment = current.segments.find(item => item.id === state.segmentID);
   drawSegments();
+  if (!segment) return;
   try {
     current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({startSeconds: segment.startSeconds, endSeconds: segment.endSeconds})});
     elements.error.textContent = ""; render();
@@ -461,5 +482,11 @@ function showError(error) { elements.error.textContent = error.message; }
 
 loadSessions();
 setInterval(async () => {
-  if (current?.export?.status === "running" || current?.status === "recording") { try { current = await api(`/api/sessions/${current.id}`); render(); } catch (_) {} }
+  if (!current || (current.export?.status !== "running" && !isRecording(current))) return;
+  const wasRecording = isRecording(current);
+  try {
+    current = await api(`/api/sessions/${current.id}`);
+    render();
+    if (wasRecording && !isRecording(current)) { void loadWaveform(current.id); void loadSessions(); }
+  } catch (_) {}
 }, 1500);

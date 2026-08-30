@@ -45,8 +45,8 @@ local page, compatible with OBS's Chromium-based [browser support](https://obspr
 
 ## Try it on macOS
 
-Requirements: Go 1.23 or later, a working C compiler for cgo, FFmpeg, and
-FFprobe on `PATH`.
+Requirements: Go 1.23 or later, a working C compiler for cgo, and FFmpeg 4.4 or
+later with FFprobe on `PATH`.
 
 ```sh
 make test

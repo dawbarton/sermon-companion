@@ -8,10 +8,12 @@ window.SC = {
   },
   formatTime(seconds, tenths = false) {
     seconds = Math.max(0, Number(seconds) || 0);
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    const suffix = tenths ? secs.toFixed(1).padStart(4, "0") : Math.floor(secs).toString().padStart(2, "0");
+    // Round before splitting, so 119.98 s reads as 2:00.0 rather than 1:60.0.
+    const total = tenths ? Math.round(seconds * 10) / 10 : Math.floor(seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const suffix = tenths ? secs.toFixed(1).padStart(4, "0") : secs.toString().padStart(2, "0");
     return hours ? `${hours}:${minutes.toString().padStart(2, "0")}:${suffix}` : `${minutes}:${suffix}`;
   },
   parseTime(value) {

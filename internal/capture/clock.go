@@ -38,6 +38,22 @@ func (c *frameClock) accept(frameCount uint32, at time.Time) Position {
 	if len(c.anchors) > 0 {
 		frames += c.anchors[len(c.anchors)-1].frames
 	}
+	return c.anchorLocked(frames, at)
+}
+
+// acceptTotal records an absolute frame position reported by an encoder rather
+// than a delta from a device callback. A report that would move the clock
+// backwards is held at the previous position so interpolation never reverses.
+func (c *frameClock) acceptTotal(frames uint64, at time.Time) Position {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.anchors) > 0 && frames < c.anchors[len(c.anchors)-1].frames {
+		frames = c.anchors[len(c.anchors)-1].frames
+	}
+	return c.anchorLocked(frames, at)
+}
+
+func (c *frameClock) anchorLocked(frames uint64, at time.Time) Position {
 	c.anchors = append(c.anchors, clockAnchor{at: at, frames: frames})
 	if len(c.anchors) > 16 {
 		copy(c.anchors, c.anchors[len(c.anchors)-16:])
@@ -86,6 +102,11 @@ func (c *frameClock) interpolateLocked(at time.Time) (Position, bool) {
 		return Position{}, false
 	}
 	if !c.anchors[len(c.anchors)-1].at.Before(at) {
+		// A request older than every retained anchor cannot be interpolated;
+		// extrapolating backwards would run the frame count below zero.
+		if at.Before(c.anchors[0].at) {
+			return c.position(c.anchors[0].frames, true), true
+		}
 		for index := 1; index < len(c.anchors); index++ {
 			before, after := c.anchors[index-1], c.anchors[index]
 			if after.at.Before(at) {

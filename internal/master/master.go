@@ -60,13 +60,14 @@ func (m *Master) Export(id string) error {
 	}
 
 	started := time.Now().UTC()
-	_, err = m.store.Update(id, "export.started", map[string]any{"segments": segmentIDs(segments)}, func(s *store.Session) error {
+	begun, err := m.store.Update(id, "export.started", map[string]any{"segments": segmentIDs(segments)}, func(s *store.Session) error {
 		s.Export = &store.ExportInfo{Status: "running", StartedAt: started}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+	startRevision := begun.Revision
 
 	exportDir := filepath.Join(dir, "exports")
 	workDir := filepath.Join(exportDir, ".work-"+started.Format("20060102-150405"))
@@ -113,7 +114,14 @@ func (m *Master) Export(id string) error {
 	}
 	ended := time.Now().UTC()
 	_, err = m.store.Update(id, "export.completed", map[string]any{"output": filepath.Join("exports", outputName)}, func(s *store.Session) error {
-		s.Export = &store.ExportInfo{Status: "completed", StartedAt: started, EndedAt: &ended, Output: filepath.ToSlash(filepath.Join("exports", outputName))}
+		info := &store.ExportInfo{Status: "completed", StartedAt: started, EndedAt: &ended, Output: filepath.ToSlash(filepath.Join("exports", outputName))}
+		// Segment and metadata edits are accepted while an export runs, so an
+		// MP3 built from the earlier snapshot must not be published as current.
+		if s.Revision != startRevision {
+			info.Status = "stale"
+			info.Error = "Service details or segments changed while this MP3 was being created."
+		}
+		s.Export = info
 		return nil
 	})
 	if err == nil {
