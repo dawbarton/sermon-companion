@@ -1,6 +1,8 @@
 package master
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,6 +25,42 @@ more output`)
 	}
 	if got.InputI != "-22.31" || got.TargetOffset != "0.12" {
 		t.Fatalf("unexpected measurement: %#v", got)
+	}
+}
+
+func TestOutputNameUsesServiceDateAndSafeChurchName(t *testing.T) {
+	session := &store.Session{
+		StartedAt: time.Date(2026, 8, 30, 10, 0, 0, 0, time.Local),
+		Church:    " St Mary's Church ",
+	}
+	if got := outputName(session); got != "2026-08-30-St-Marys-Church.mp3" {
+		t.Fatalf("outputName() = %q", got)
+	}
+	if got := filenamePart("Christ Church & St Peter's"); got != "Christ-Church-St-Peters" {
+		t.Fatalf("filenamePart() = %q", got)
+	}
+}
+
+func TestPublishOutputRetainsPreviousExport(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "2026-08-30-Church.mp3")
+	tempPath := filepath.Join(dir, "new.mp3")
+	if err := os.WriteFile(finalPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tempPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 30, 12, 34, 56, 123, time.UTC)
+	if err := publishOutput(tempPath, finalPath, started); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(finalPath); err != nil || string(data) != "new" {
+		t.Fatalf("current export = %q, %v", data, err)
+	}
+	previous := filepath.Join(dir, "previous", "2026-08-30-Church-20260830-123456.000000123.mp3")
+	if data, err := os.ReadFile(previous); err != nil || string(data) != "old" {
+		t.Fatalf("previous export = %q, %v", data, err)
 	}
 }
 

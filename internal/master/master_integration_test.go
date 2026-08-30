@@ -20,7 +20,8 @@ func TestTwoPassPerSegmentExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := sessions.Create("Mastering integration test", time.Now())
+	serviceDate := time.Date(2026, 8, 30, 10, 0, 0, 0, time.Local)
+	session, err := sessions.Create("Mastering integration test", "St Mary's Church", serviceDate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,9 @@ func TestTwoPassPerSegmentExport(t *testing.T) {
 	}
 	if completed.Export == nil || completed.Export.Status != "completed" {
 		t.Fatalf("unexpected export: %#v", completed.Export)
+	}
+	if completed.Export.Output != "exports/2026-08-30-St-Marys-Church.mp3" {
+		t.Fatalf("unexpected output name: %q", completed.Export.Output)
 	}
 	output := filepath.Join(dir, filepath.FromSlash(completed.Export.Output))
 	if info, err := os.Stat(output); err != nil || info.Size() == 0 {

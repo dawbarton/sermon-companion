@@ -44,7 +44,7 @@ func (s *Store) SessionDir(id string) (string, error) {
 	return filepath.Join(s.root, "sessions", id), nil
 }
 
-func (s *Store) Create(title string, now time.Time) (*Session, error) {
+func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -56,17 +56,21 @@ func (s *Store) Create(title string, now time.Time) (*Session, error) {
 	if strings.TrimSpace(title) == "" {
 		title = now.Format("2 January 2006")
 	}
+	if strings.TrimSpace(church) == "" {
+		church = "Church"
+	}
 	session := &Session{
 		SchemaVersion: SchemaVersion,
 		ID:            id,
 		Title:         strings.TrimSpace(title),
+		Church:        strings.TrimSpace(church),
 		Status:        "starting",
 		StartedAt:     now.UTC(),
 		AudioFile:     "audio.part.flac",
 		Segments:      []Segment{},
 		Markers:       []Marker{},
 	}
-	if err := s.saveLocked(session, "session.created", map[string]any{"title": session.Title}); err != nil {
+	if err := s.saveLocked(session, "session.created", map[string]any{"title": session.Title, "church": session.Church}); err != nil {
 		return nil, err
 	}
 	return clone(session), nil

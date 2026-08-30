@@ -21,7 +21,7 @@ func TestGenerateAndReuseEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := sessions.Create("Waveform integration test", time.Now())
+	session, err := sessions.Create("Waveform integration test", "Test Church", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

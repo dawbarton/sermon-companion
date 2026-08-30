@@ -13,7 +13,7 @@ func TestStoreKeepsSnapshotAndAppendOnlyEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
-	session, err := sessions.Create("Test service", now)
+	session, err := sessions.Create("Test service", "St Mary's", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestStoreKeepsSnapshotAndAppendOnlyEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Status != "stopped" || loaded.Revision != 2 {
+	if loaded.Status != "stopped" || loaded.Church != "St Mary's" || loaded.Revision != 2 {
 		t.Fatalf("unexpected snapshot: %#v", loaded)
 	}
 	events, err := sessions.Events(session.ID)

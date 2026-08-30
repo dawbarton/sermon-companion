@@ -10,11 +10,14 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/dawbarton/sermon-companion/internal/capture"
 	"github.com/dawbarton/sermon-companion/internal/config"
@@ -24,18 +27,19 @@ import (
 )
 
 type Server struct {
-	config   config.Config
-	store    *store.Store
-	capture  *capture.Manager
-	master   *master.Master
-	waveform *waveform.Generator
-	static   fs.FS
-	jobsMu   sync.Mutex
-	jobs     map[string]bool
+	config     config.Config
+	store      *store.Store
+	capture    *capture.Manager
+	master     *master.Master
+	waveform   *waveform.Generator
+	static     fs.FS
+	openFolder func(string) error
+	jobsMu     sync.Mutex
+	jobs       map[string]bool
 }
 
 func NewServer(c config.Config, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
-	return &Server{config: c, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(c.FFmpeg, sessions), static: static, jobs: map[string]bool{}}
+	return &Server{config: c, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(c.FFmpeg, sessions), static: static, openFolder: openFolder, jobs: map[string]bool{}}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -44,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/sessions", s.startSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
+	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
@@ -56,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/audio", s.audio)
 	mux.HandleFunc("GET /api/sessions/{id}/waveform", s.waveformEnvelope)
 	mux.HandleFunc("GET /api/sessions/{id}/export-file", s.exportFile)
+	mux.HandleFunc("POST /api/sessions/{id}/open-export-folder", s.openExportFolder)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.events)
 	assets, _ := fs.Sub(s.static, "static")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
@@ -129,6 +135,57 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
+	if strings.TrimSpace(session.Church) == "" {
+		session.Church = s.config.Church
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Title  *string `json:"title"`
+		Church *string `json:"church"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	id := r.PathValue("id")
+	before, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	session, err := s.store.Update(id, "session.metadata_updated", map[string]any{"before": map[string]string{"title": before.Title, "church": before.Church}, "requested": request}, func(session *store.Session) error {
+		if session.Export != nil && session.Export.Status == "running" {
+			return errors.New("service details cannot be changed while an MP3 is being created")
+		}
+		changed := false
+		if request.Title != nil {
+			title := strings.TrimSpace(*request.Title)
+			if title == "" {
+				return errors.New("service title is required")
+			}
+			changed = changed || title != session.Title
+			session.Title = title
+		}
+		if request.Church != nil {
+			church := strings.TrimSpace(*request.Church)
+			if church == "" {
+				return errors.New("church is required")
+			}
+			changed = changed || church != session.Church
+			session.Church = church
+		}
+		if changed {
+			markExportStale(session)
+		}
+		return nil
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, session)
 }
 
@@ -162,7 +219,7 @@ func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Kind, request.Label = strings.TrimSpace(request.Kind), strings.TrimSpace(request.Label)
 	if request.Kind == "" {
-		request.Kind = "custom"
+		request.Kind = kindFromLabel(request.Label)
 	}
 	if request.Label == "" {
 		request.Label = request.Kind
@@ -196,7 +253,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Kind, request.Label = strings.TrimSpace(request.Kind), strings.TrimSpace(request.Label)
 	if request.Kind == "" {
-		request.Kind = "custom"
+		request.Kind = kindFromLabel(request.Label)
 	}
 	if request.Label == "" {
 		writeError(w, http.StatusBadRequest, errors.New("segment label is required"))
@@ -396,11 +453,11 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("marker time cannot be negative"))
 		return
 	}
-	if strings.TrimSpace(request.Kind) == "" {
-		request.Kind = "note"
-	}
 	if strings.TrimSpace(request.Label) == "" {
 		request.Label = "Marker"
+	}
+	if strings.TrimSpace(request.Kind) == "" {
+		request.Kind = kindFromLabel(request.Label)
 	}
 	marker := store.Marker{ID: store.NewObjectID("mark"), Kind: strings.TrimSpace(request.Kind), Label: strings.TrimSpace(request.Label), At: *at, CreatedAt: time.Now().UTC()}
 	session, err := s.store.Update(r.PathValue("id"), "marker.added", marker, func(session *store.Session) error { session.Markers = append(session.Markers, marker); return nil })
@@ -461,6 +518,24 @@ func (s *Server) exportFile(w http.ResponseWriter, r *http.Request) {
 	serveFile(w, r, filepath.Join(dir, filepath.FromSlash(session.Export.Output)), "audio/mpeg", true)
 }
 
+func (s *Server) openExportFolder(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.store.Get(r.PathValue("id")); err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	dir, _ := s.store.SessionDir(r.PathValue("id"))
+	exportDir := filepath.Join(dir, "exports")
+	if err := os.MkdirAll(exportDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.openFolder(exportDir); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("open MP3 folder: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "opened"})
+}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	events, err := s.store.Events(r.PathValue("id"))
 	if err != nil {
@@ -511,8 +586,46 @@ func floatPointer(v float64) *float64 { return &v }
 func markExportStale(session *store.Session) {
 	if session.Export != nil && session.Export.Status == "completed" {
 		session.Export.Status = "stale"
-		session.Export.Error = "Segments changed after this MP3 was created."
+		session.Export.Error = "Service details or segments changed after this MP3 was created."
 	}
+}
+
+func kindFromLabel(label string) string {
+	var out strings.Builder
+	separator := false
+	for _, r := range strings.ToLower(strings.TrimSpace(label)) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			if separator && out.Len() > 0 {
+				out.WriteByte('-')
+			}
+			out.WriteRune(r)
+			separator = false
+		case r == '\'' || r == '’':
+		default:
+			separator = out.Len() > 0
+		}
+	}
+	if out.Len() == 0 {
+		return "custom"
+	}
+	return strings.TrimRight(out.String(), "-")
+}
+
+func openFolder(path string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		command = exec.Command("explorer.exe", path)
+	case "darwin":
+		command = exec.Command("open", path)
+	default:
+		command = exec.Command("xdg-open", path)
+	}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	return command.Process.Release()
 }
 
 func decodeJSON(r *http.Request, destination interface{}) error {

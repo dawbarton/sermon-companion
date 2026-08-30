@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/store"
@@ -41,6 +42,9 @@ func (m *Master) Export(id string) error {
 	}
 	if session.Status == "recording" || session.Status == "starting" {
 		return errors.New("stop the recording before exporting")
+	}
+	if strings.TrimSpace(session.Church) == "" {
+		session.Church = m.config.Church
 	}
 	segments := exportSegments(session.Segments)
 	if len(segments) == 0 {
@@ -90,14 +94,14 @@ func (m *Master) Export(id string) error {
 	if err := os.WriteFile(filepath.Join(workDir, "concat.txt"), []byte(list.String()), 0o644); err != nil {
 		return m.fail(id, err)
 	}
-	outputName := nextOutputName(exportDir)
+	outputName := outputName(session)
 	tempOutput := filepath.Join(workDir, "master.part.mp3")
 	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-b:a", m.config.Master.MP3Bitrate, "-ar", strconv.Itoa(m.config.Capture.SampleRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
 	if err := runLogged(m.config.FFmpeg, args, workDir, logFile); err != nil {
 		return m.fail(id, fmt.Errorf("create MP3: %w", err))
 	}
 	finalPath := filepath.Join(exportDir, outputName)
-	if err := os.Rename(tempOutput, finalPath); err != nil {
+	if err := publishOutput(tempOutput, finalPath, started); err != nil {
 		return m.fail(id, err)
 	}
 	ended := time.Now().UTC()
@@ -211,9 +215,55 @@ func segmentIDs(segments []store.Segment) []string {
 
 func seconds(value float64) string { return strconv.FormatFloat(value, 'f', 3, 64) }
 
-func nextOutputName(dir string) string {
-	if _, err := os.Stat(filepath.Join(dir, "sermon.mp3")); os.IsNotExist(err) {
-		return "sermon.mp3"
+func outputName(session *store.Session) string {
+	church := filenamePart(session.Church)
+	if church == "" {
+		church = "Church"
 	}
-	return "sermon-" + time.Now().Format("20060102-150405") + ".mp3"
+	return session.StartedAt.In(time.Local).Format("2006-01-02") + "-" + church + ".mp3"
+}
+
+func filenamePart(value string) string {
+	var out strings.Builder
+	separator := false
+	for _, r := range strings.TrimSpace(value) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			if separator && out.Len() > 0 {
+				out.WriteByte('-')
+			}
+			out.WriteRune(r)
+			separator = false
+		case r == '\'' || r == '’':
+			// Apostrophes are omitted: "St Mary's" becomes "St-Marys".
+		default:
+			separator = out.Len() > 0
+		}
+	}
+	return strings.TrimRight(out.String(), "-")
+}
+
+func publishOutput(tempPath, finalPath string, started time.Time) error {
+	backupPath := ""
+	if _, err := os.Stat(finalPath); err == nil {
+		previousDir := filepath.Join(filepath.Dir(finalPath), "previous")
+		if err := os.MkdirAll(previousDir, 0o755); err != nil {
+			return err
+		}
+		base := strings.TrimSuffix(filepath.Base(finalPath), filepath.Ext(finalPath))
+		backupName := base + "-" + started.Format("20060102-150405.000000000") + filepath.Ext(finalPath)
+		backupPath = filepath.Join(previousDir, backupName)
+		if err := os.Rename(finalPath, backupPath); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		if backupPath != "" {
+			_ = os.Rename(backupPath, finalPath)
+		}
+		return err
+	}
+	return nil
 }

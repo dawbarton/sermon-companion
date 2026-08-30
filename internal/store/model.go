@@ -8,6 +8,7 @@ type Session struct {
 	SchemaVersion int         `json:"schemaVersion"`
 	ID            string      `json:"id"`
 	Title         string      `json:"title"`
+	Church        string      `json:"church"`
 	Status        string      `json:"status"`
 	StartedAt     time.Time   `json:"startedAt"`
 	EndedAt       *time.Time  `json:"endedAt,omitempty"`

@@ -31,18 +31,23 @@ ONE-TIME TECHNICAL SETUP
 
      %LOCALAPPDATA%\Sermon Companion\config.json
 
-4. In the "capture" section, use:
+4. Set the top-level `"church"` value to the church name. This becomes the
+   default for each new service, for example:
+
+     "church": "St Mary's Church",
+
+5. In the "capture" section, use:
 
      "driver": "dshow",
      "device": "THE EXACT DEVICE NAME",
      "sampleRate": 48000,
      "channels": 2
 
-5. Start the application again and make a short test recording. Confirm that
+6. Start the application again and make a short test recording. Confirm that
    the review page plays the expected church mix, not a microphone or silent
    device.
 
-6. In OBS, choose View, Docks, Custom Browser Docks. Add:
+7. In OBS, choose View, Docks, Custom Browser Docks. Add:
 
      Dock name: Sermon recording
      URL:       http://127.0.0.1:8765/dock
@@ -61,17 +66,21 @@ NORMAL OPERATION
    ends it without starting another.
 4. "Add marker" records a general note position without changing a segment.
 5. At the end of the service, click "Stop service".
-6. Open http://127.0.0.1:8765/ in a browser. Each segment has its own Play and
-   Stop button. For coarse adjustments, drag a segment or either of its edges on
-   the waveform. Use Zoom and Pan, or enter exact start and end times, for fine
-   adjustments. Use Add segment for a missed interval, or Remove for an unwanted
-   one. Removed segments can be restored from the panel below the table. Untick
-   any part that should remain visible but not be exported.
+6. Open http://127.0.0.1:8765/ in a browser. Check and, if necessary, edit the
+   service title and church, then click "Save details". Each segment has its own
+   Play and Stop button. For coarse adjustments, drag a segment or either of its
+   edges on the waveform. Use Zoom and Pan, or enter exact start and end times,
+   for fine adjustments. Use Add segment for a missed interval, or Remove for an
+   unwanted one. Removed segments can be restored from the panel below the
+   table. Untick any part that should remain visible but not be exported.
 7. Click "Create MP3". Each included part is measured and normalised separately
-   before the parts are joined. Download the finished MP3 when it is ready.
+   before the parts are joined. The result is named
+   `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
+   Explorer, or download it through the browser.
 
 The complete FLAC remains available if an operator makes a mistake. Creating a
-new MP3 never changes it. A second export is given a new timestamped filename.
+new MP3 never changes it. Recreating an MP3 keeps the requested simple filename;
+the previous version is retained under `exports\previous`.
 
 
 RECOVERY

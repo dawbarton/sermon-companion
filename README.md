@@ -15,6 +15,9 @@ validation on the church's Windows and HDMI-capture hardware.
   mistaken button press does not lose audio.
 - `Reading`, `Sermon`, and `Q&A` are merely default presets. The stored segment
   model accepts arbitrary `kind` and `label` values.
+- Each service stores an editable title and church. New services inherit the
+  church from `config.json`; the review interface exposes only segment labels,
+  while retaining automatically generated kinds in the generic backend model.
 - Every metadata change is appended to `events.jsonl`. `session.json` is an
   atomic current snapshot, not the only copy of the editing history.
 - The review page caches a compact waveform envelope for long services. It can
@@ -51,6 +54,9 @@ review page, click a segment's Play button to audition it, or zoom and pan the
 waveform and drag its body or edges to adjust its times. The segment manager can
 also add a missed interval or remove an unwanted one. Then create the MP3. Demo
 data is written beneath `work/demo-data` and is ignored by Git.
+
+The MP3 is named `YYYY-MM-DD-Church-Name.mp3` using the service date and the
+edited church field. The review page can open the containing folder directly.
 
 For capture from a macOS input, omit `--demo`. On first launch the application
 creates its configuration in `~/Library/Application Support/Sermon Companion`.

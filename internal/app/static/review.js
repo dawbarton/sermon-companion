@@ -1,13 +1,14 @@
 "use strict";
 const {api, formatTime, parseTime} = window.SC;
 const elementIDs = [
-  "session-list", "empty", "detail", "session-title", "session-meta", "audio",
+  "session-list", "empty", "detail", "session-details", "session-title", "church",
+  "save-session", "session-meta", "audio", "open-folder",
   "waveform-viewport", "waveform-canvas", "segment-overlay", "playhead",
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
-  "marker-kind", "marker-time", "export", "download", "export-status", "error",
+  "marker-time", "export", "download", "export-status", "error",
   "show-add-segment", "add-segment", "cancel-add-segment", "new-segment-label",
-  "new-segment-kind", "new-segment-start", "new-segment-end", "removed-panel",
+  "new-segment-start", "new-segment-end", "removed-panel",
   "removed-count", "removed-segments"
 ];
 const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElementById(id)]));
@@ -75,7 +76,10 @@ function render() {
   elements.empty.classList.toggle("hidden", !!current);
   elements.detail.classList.toggle("hidden", !current);
   if (!current) return;
-  elements["session-title"].textContent = current.title;
+  if (!elements["session-details"].contains(document.activeElement)) {
+    elements["session-title"].value = current.title;
+    elements.church.value = current.church || "Church";
+  }
   elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}`;
   const audioURL = `/api/sessions/${current.id}/audio`;
   if (!elements.audio.src.endsWith(audioURL)) elements.audio.src = audioURL;
@@ -83,8 +87,9 @@ function render() {
   elements.markers.replaceChildren(...[...current.markers].sort((a,b) => a.atSeconds-b.atSeconds).map(markerRow));
   renderWaveform();
   const exp = current.export;
-  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
+  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
   elements.export.disabled = current.status === "recording" || exp?.status === "running";
+  elements["save-session"].disabled = exp?.status === "running";
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
 }
@@ -109,14 +114,13 @@ function segmentRow(segment) {
   play.addEventListener("click", () => toggleSegmentPlayback(segment));
   const include = document.createElement("input"); include.type = "checkbox"; include.checked = segment.include;
   const label = document.createElement("input"); label.value = segment.label;
-  const kind = document.createElement("input"); kind.value = segment.kind;
   const start = document.createElement("input"); start.value = formatTime(segment.startSeconds, true); start.className = "short"; start.dataset.field = "start";
   const end = document.createElement("input"); end.value = segment.endSeconds == null ? "" : formatTime(segment.endSeconds, true); end.className = "short"; end.dataset.field = "end";
   const save = document.createElement("button"); save.textContent = "Save";
   save.addEventListener("click", async () => {
     save.disabled = true;
     try {
-      current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include: include.checked, label: label.value, kind: kind.value, startSeconds: parseTime(start.value), endSeconds: parseTime(end.value)})});
+      current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include: include.checked, label: label.value, startSeconds: parseTime(start.value), endSeconds: parseTime(end.value)})});
       elements.error.textContent = ""; render();
     } catch (error) { showError(error); }
     finally { save.disabled = false; }
@@ -124,7 +128,7 @@ function segmentRow(segment) {
   const remove = document.createElement("button"); remove.textContent = "Remove"; remove.className = "remove";
   remove.addEventListener("click", () => removeSegment(segment));
   const actions = document.createElement("div"); actions.className = "row-actions"; actions.append(save, remove);
-  for (const control of [play, include, label, kind, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
+  for (const control of [play, include, label, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
   return row;
 }
 
@@ -180,8 +184,7 @@ function markerRow(marker) {
   const row = document.createElement("div"); row.className = "marker";
   const time = document.createElement("button"); time.textContent = formatTime(marker.atSeconds, true); time.addEventListener("click", () => { stopSegmentPlayback(); elements.audio.currentTime = marker.atSeconds; void elements.audio.play(); });
   const label = document.createElement("span"); label.textContent = marker.label;
-  const kind = document.createElement("span"); kind.className = "muted"; kind.textContent = marker.kind;
-  row.append(time, label, kind); return row;
+  row.append(time, label); return row;
 }
 
 function renderWaveform() {
@@ -386,10 +389,27 @@ window.addEventListener("resize", renderWaveform);
 elements["add-marker"].addEventListener("submit", async event => {
   event.preventDefault();
   try {
-    current = await api(`/api/sessions/${current.id}/markers`, {method: "POST", body: JSON.stringify({label: elements["marker-label"].value, kind: elements["marker-kind"].value, atSeconds: parseTime(elements["marker-time"].value)})});
-    elements["marker-label"].value = ""; elements["marker-kind"].value = ""; render();
+    current = await api(`/api/sessions/${current.id}/markers`, {method: "POST", body: JSON.stringify({label: elements["marker-label"].value, atSeconds: parseTime(elements["marker-time"].value)})});
+    elements["marker-label"].value = ""; render();
   } catch (error) { showError(error); }
 });
+
+elements["session-details"].addEventListener("submit", async event => {
+  event.preventDefault();
+  try { await saveSessionDetails(); }
+  catch (error) { showError(error); }
+});
+
+async function saveSessionDetails() {
+  const title = elements["session-title"].value.trim();
+  const church = elements.church.value.trim();
+  if (title === current.title && church === current.church) return;
+  elements["save-session"].disabled = true;
+  try {
+    current = await api(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({title, church})});
+    elements.error.textContent = ""; render(); await loadSessions();
+  } finally { elements["save-session"].disabled = false; }
+}
 
 elements["show-add-segment"].addEventListener("click", () => {
   const duration = Math.max(current?.durationSeconds || waveform.duration || 0, .1);
@@ -397,7 +417,6 @@ elements["show-add-segment"].addEventListener("click", () => {
   if (start >= duration-.1) start = Math.max(0, duration-60);
   const end = Math.min(duration, start+60);
   elements["new-segment-label"].value = "";
-  elements["new-segment-kind"].value = "custom";
   elements["new-segment-start"].value = formatTime(start, true);
   elements["new-segment-end"].value = formatTime(Math.max(start+.1, end), true);
   elements["add-segment"].classList.remove("hidden");
@@ -411,7 +430,6 @@ elements["add-segment"].addEventListener("submit", async event => {
   try {
     current = await api(`/api/sessions/${current.id}/segments/manual`, {method: "POST", body: JSON.stringify({
       label: elements["new-segment-label"].value,
-      kind: elements["new-segment-kind"].value,
       startSeconds: parseTime(elements["new-segment-start"].value),
       endSeconds: parseTime(elements["new-segment-end"].value)
     })});
@@ -421,7 +439,12 @@ elements["add-segment"].addEventListener("submit", async event => {
 });
 
 elements.export.addEventListener("click", async () => {
-  try { await api(`/api/sessions/${current.id}/export`, {method: "POST", body: "{}"}); current.export = {status: "running"}; render(); }
+  try { await saveSessionDetails(); await api(`/api/sessions/${current.id}/export`, {method: "POST", body: "{}"}); current.export = {status: "running"}; render(); }
+  catch (error) { showError(error); }
+});
+
+elements["open-folder"].addEventListener("click", async () => {
+  try { await api(`/api/sessions/${current.id}/open-export-folder`, {method: "POST", body: "{}"}); }
   catch (error) { showError(error); }
 });
 

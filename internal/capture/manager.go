@@ -91,7 +91,7 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 	if m.run != nil {
 		return nil, errors.New("a recording is already in progress")
 	}
-	session, err := m.store.Create(title, time.Now())
+	session, err := m.store.Create(title, m.config.Church, time.Now())
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ type Config struct {
 	Listen  string          `json:"listen"`
 	FFmpeg  string          `json:"ffmpeg"`
 	FFprobe string          `json:"ffprobe"`
+	Church  string          `json:"church"`
 	Capture CaptureConfig   `json:"capture"`
 	Presets []Preset        `json:"presets"`
 	Master  MasteringConfig `json:"mastering"`
@@ -48,6 +49,7 @@ func DefaultConfig() Config {
 		Listen:  "127.0.0.1:8765",
 		FFmpeg:  "ffmpeg",
 		FFprobe: "ffprobe",
+		Church:  "Church",
 		Capture: CaptureConfig{Driver: driver, Device: device, SampleRate: 48000, Channels: 2},
 		Presets: []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
 		Master:  MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, MP3Bitrate: "128k"},
@@ -87,6 +89,9 @@ func applyConfigDefaults(c *Config, d Config) {
 	}
 	if c.FFprobe == "" {
 		c.FFprobe = d.FFprobe
+	}
+	if c.Church == "" {
+		c.Church = d.Church
 	}
 	if c.Capture.Driver == "" {
 		c.Capture.Driver = d.Capture.Driver

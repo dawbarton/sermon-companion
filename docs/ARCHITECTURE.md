@@ -36,6 +36,11 @@ altering session storage, the UI, or mastering.
 
 ## Generic segment model
 
+A session stores the service title and church alongside its recording state.
+Both fields remain editable after capture and are included in the append-only
+metadata history. A new session's church defaults from the top-level `church`
+setting in `config.json`.
+
 A segment has a stable ID, free-form `kind`, user-facing `label`, start and end
 times in seconds, an `include` flag, and an optional `archived` flag. Removing a
 segment archives it from the active editor and mastering pipeline; restoring it
@@ -53,6 +58,10 @@ presets are configuration:
 They have no special meaning to the storage or mastering layers. A marker is
 likewise generic, but represents a point rather than an interval.
 
+The ordinary review UI exposes only labels. For a manually added segment or
+marker, the server derives a lower-case, hyphenated kind from its label. The API
+retains an optional explicit kind for future integrations.
+
 ## Durability
 
 Each session is an independent directory:
@@ -66,7 +75,8 @@ sessions/SESSION-ID/
   waveform-20pps.json        cached compact peak envelope
   exports/
     mastering.log
-    sermon.mp3
+    YYYY-MM-DD-Church-Name.mp3
+    previous/                  superseded exports retained here
 ```
 
 An event is appended and flushed before the new snapshot replaces the previous
@@ -74,6 +84,12 @@ snapshot. Adjusting a segment records its previous value and the requested
 change. Exports are first written under a private work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
+
+The current MP3 name is deterministic from the local service date and a
+filesystem-safe, space-free form of the session's church. Re-exporting first
+moves the preceding file into `exports/previous`, then atomically publishes the
+new current file. The manager asks the operating system to reveal `exports`
+when the operator clicks "Open MP3 folder".
 
 ## Mastering
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := sessions.Create("Segment API test", time.Now())
+	session, err := sessions.Create("Segment API test", "Test Church", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +35,8 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 	c := config.DefaultConfig()
 	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
 
-	created := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"kind":"notices","label":"Notices","startSeconds":30,"endSeconds":45}`)
-	if len(created.Segments) != 1 || created.Segments[0].Label != "Notices" || !created.Segments[0].Include {
+	created := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Notices","startSeconds":30,"endSeconds":45}`)
+	if len(created.Segments) != 1 || created.Segments[0].Label != "Notices" || created.Segments[0].Kind != "notices" || !created.Segments[0].Include {
 		t.Fatalf("unexpected created segment: %#v", created.Segments)
 	}
 	if created.Export == nil || created.Export.Status != "stale" {
@@ -61,12 +62,63 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 	}
 }
 
+func TestSessionMetadataAndOpenExportFolder(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Old title", "Old Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status = "stopped"
+		s.Export = &store.ExportInfo{Status: "completed", StartedAt: time.Now(), Output: "exports/old.mp3"}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	server := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles)
+	opened := ""
+	server.openFolder = func(path string) error { opened = path; return nil }
+	handler := server.Handler()
+
+	updated := requestSession(t, handler, http.MethodPatch, "/api/sessions/"+session.ID, `{"title":"Sunday Eucharist","church":"St Mary's Church"}`)
+	if updated.Title != "Sunday Eucharist" || updated.Church != "St Mary's Church" {
+		t.Fatalf("unexpected metadata: %#v", updated)
+	}
+	if updated.Export == nil || updated.Export.Status != "stale" {
+		t.Fatalf("metadata change did not invalidate export: %#v", updated.Export)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/open-export-folder", strings.NewReader(`{}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d, body=%s", response.Code, response.Body.String())
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	if opened != filepath.Join(dir, "exports") {
+		t.Fatalf("opened %q", opened)
+	}
+}
+
+func TestKindFromLabel(t *testing.T) {
+	for label, want := range map[string]string{"Notices": "notices", "Bible Reading": "bible-reading", "Q&A": "q-a", "St Mary's": "st-marys", "!!!": "custom"} {
+		if got := kindFromLabel(label); got != want {
+			t.Errorf("kindFromLabel(%q) = %q, want %q", label, got, want)
+		}
+	}
+}
+
 func TestManualSegmentValidatesRecordingBounds(t *testing.T) {
 	sessions, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := sessions.Create("Segment API test", time.Now())
+	session, err := sessions.Create("Segment API test", "Test Church", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
