@@ -78,8 +78,13 @@ go run ./cmd/sermon-companion --list-devices
 ## Windows
 
 See [docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md) for deployment and the OBS
-dock setup. A distributable x86-64 folder can be built on macOS, Linux, or
-Windows with:
+dock setup. Each tagged GitHub release contains a native Windows x86-64
+executable, an application ZIP, and SHA-256 checksums. The automatic ZIP does
+not redistribute FFmpeg; place `ffmpeg.exe` and `ffprobe.exe` beside the
+application, as described in the setup notes.
+
+A self-contained x86-64 folder can also be built on macOS, Linux, or Windows
+with:
 
 ```powershell
 pwsh -File scripts/build-windows.ps1 -FFmpegDirectory C:\path\to\ffmpeg\bin -CCompiler gcc
@@ -88,6 +93,21 @@ pwsh -File scripts/build-windows.ps1 -FFmpegDirectory C:\path\to\ffmpeg\bin -CCo
 The output in `dist/SermonCompanion` contains the application, start shortcut,
 operator notes, and the supplied FFmpeg executables. No Go installation is
 required on the church computer.
+
+## Versions and releases
+
+Sermon Companion uses [Semantic Versioning](https://semver.org/). The current
+version is stored in `VERSION`. Until 1.0, increment the minor version for new
+functionality or an intentionally incompatible session/API change, and the
+patch version for compatible corrections. Pre-release suffixes such as
+`0.2.0-rc.1` are permitted.
+
+To publish a release, commit the intended `VERSION` value and push an annotated
+tag with the same value prefixed by `v`, for example `v0.1.0`. The Windows
+release workflow rejects a mismatched or malformed tag, tests the cgo-enabled
+native capture build on Windows, embeds the version in the executable, and
+creates the GitHub release. Release binaries report their version with
+`SermonCompanion.exe --version`; untagged development builds report `dev`.
 
 ## Repository map
 

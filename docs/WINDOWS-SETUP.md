@@ -10,6 +10,11 @@ Keep these files together in one folder:
   ffprobe.exe
   Start Sermon Companion.cmd
 
+The GitHub release ZIP contains the application, launcher, and these notes. For
+licensing and supply-chain clarity it does not redistribute FFmpeg. Download a
+trusted Windows FFmpeg build separately, then copy `ffmpeg.exe` and
+`ffprobe.exe` into this folder before first use.
+
 The application stores recordings and settings separately under:
 
   %LOCALAPPDATA%\Sermon Companion

@@ -20,6 +20,9 @@ import (
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
+// version is replaced at release build time with -ldflags "-X main.version=…".
+var version = "dev"
+
 func main() {
 	defaultData := defaultDataDir()
 	dataDir := flag.String("data-dir", defaultData, "directory for configuration and recordings")
@@ -27,7 +30,12 @@ func main() {
 	demo := flag.Bool("demo", false, "capture a synthetic tone instead of an audio device")
 	listDevices := flag.Bool("list-devices", false, "list available capture devices")
 	noOpen := flag.Bool("no-open", false, "do not open the review page in a browser")
+	showVersion := flag.Bool("version", false, "print the application version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("Sermon Companion %s\n", version)
+		return
+	}
 
 	if *configPath == "" {
 		*configPath = filepath.Join(*dataDir, "config.json")

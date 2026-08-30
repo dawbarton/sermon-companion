@@ -69,6 +69,13 @@ capture requires cgo and a C compiler at build time. The browser assets are
 embedded in the application binary; FFmpeg and FFprobe are the only external
 runtime dependencies.
 
+The project uses Semantic Versioning, beginning at `0.1.0`; `VERSION` is the
+single source of the release version. While the project remains below 1.0,
+increment MINOR for new functionality or intentionally incompatible session/API
+changes, and PATCH for compatible corrections. A release tag is `v` followed
+by the exact `VERSION` value. Release builds inject that value into the binary;
+ordinary development builds identify themselves as `dev` through `--version`.
+
 - `cmd/sermon-companion/main.go`: flags, platform data directory, application
   assembly, local server lifecycle, and bundled-FFmpeg discovery.
 - `internal/config`: configuration defaults and create-on-first-run behaviour.
@@ -82,6 +89,8 @@ runtime dependencies.
   MP3 publication, and export history.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
+- `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows
+  testing, packaging, checksums, and GitHub release publication.
 
 Session data belongs outside Git. A session directory contains the immutable
 source, capture and mastering logs, event journal, current snapshot, cached
@@ -133,13 +142,25 @@ Windows-capable C compiler. A pure-Go cross-build compiles only the no-cgo stub
 and is not a usable miniaudio release. Hardware-dependent WASAPI behaviour
 cannot be certified on macOS; report this boundary explicitly.
 
+The canonical automated release environment is the pinned `windows-2025`
+GitHub runner with MSYS2 UCRT64 GCC. A tag matching `v*.*.*` starts the workflow,
+but publication proceeds only if it is valid SemVer and exactly matches
+`VERSION`. The workflow runs the Go tests with cgo enabled, builds the executable,
+checks its embedded version, creates an application ZIP and SHA-256 manifest,
+and creates or updates the corresponding GitHub release. The automatic package
+does not redistribute FFmpeg; users add trusted `ffmpeg.exe` and `ffprobe.exe`
+files beside the application. The manual PowerShell builder can still bundle a
+supplied FFmpeg directory for a local self-contained package. A manual workflow
+dispatch performs the same Windows test and build without publishing a release;
+use it to validate a release commit before tagging.
+
 ## Code and persistence practices
 
 - Keep dependencies minimal. Prefer the Go standard library and native browser
   APIs unless a dependency has a clear maintenance benefit.
 - Keep platform-specific capture concerns behind `internal/capture`. Do not let
-  CoreAudio or WASAPI assumptions leak into the store, API, UI, waveform, or mastering
-  packages.
+  CoreAudio or WASAPI assumptions leak into the store, API, UI, waveform, or
+  mastering packages.
 - Validate data at every trust boundary. UI constraints are usability features,
   not substitutes for API and mastering validation.
 - Use atomic writes and explicit error handling for recordings, metadata, and
@@ -162,12 +183,16 @@ cannot be certified on macOS; report this boundary explicitly.
   packaged distributions, or other reproducible build artefacts. `work/`,
   `sessions/`, `dist/`, and `outputs/` are intentionally ignored.
 - User-facing deliverables for this Codex workspace belong in `outputs/`, even
-  though that directory is ignored. Rebuild the macOS prototype, Windows binary,
-  source archive, and setup text after changes that affect them, and link only
-  those deliverables in the final response.
+  though that directory is ignored. Rebuild local prototypes, source archives,
+  and setup text after changes that affect them, and link only those local
+  deliverables in the final response. Tagged Windows binaries are built and
+  retained by GitHub Actions rather than committed or copied back into Git.
 - A source archive must contain committed source, not local recordings,
   temporary test data, or Git metadata. Confirm the working tree is clean and
   report the commit identifier used for the build.
+- For a release, update and commit `VERSION`, create an annotated `vVERSION`
+  tag on that commit, and push the branch before the tag. Never move or reuse a
+  published version tag; make a new patch release instead.
 
 ## Current design choices, not accidental limitations
 
