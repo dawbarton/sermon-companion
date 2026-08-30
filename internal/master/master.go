@@ -54,7 +54,10 @@ func (m *Master) Export(id string) error {
 		return errors.New("there are no complete, included segments to export")
 	}
 	dir, _ := m.store.SessionDir(id)
-	input := filepath.Join(dir, session.AudioFile)
+	input, err := m.store.SessionFile(id, session.AudioFile)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(input); err != nil {
 		return fmt.Errorf("recording not found: %w", err)
 	}

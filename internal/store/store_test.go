@@ -53,3 +53,26 @@ func TestSessionDirRejectsTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionFileRejectsPathsOutsideTheSession(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Path test", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := sessions.SessionFile(session.ID, "exports/2026-01-01-Church.mp3")
+	if err != nil {
+		t.Fatalf("rejected a legitimate export path: %v", err)
+	}
+	if filepath.Base(path) != "2026-01-01-Church.mp3" {
+		t.Fatalf("unexpected export path %q", path)
+	}
+	for _, stored := range []string{"", "  ", "../../etc/passwd", ".."} {
+		if _, err := sessions.SessionFile(session.ID, stored); err == nil {
+			t.Fatalf("accepted %q", stored)
+		}
+	}
+}

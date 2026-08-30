@@ -44,6 +44,25 @@ func (s *Store) SessionDir(id string) (string, error) {
 	return filepath.Join(s.root, "sessions", id), nil
 }
 
+// SessionFile resolves a session-relative path recorded in a snapshot. A
+// corrupted or hand-edited session.json must not be able to name a file
+// outside its own session directory.
+func (s *Store) SessionFile(id, stored string) (string, error) {
+	dir, err := s.SessionDir(id)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(stored) == "" {
+		return "", errors.New("no file is recorded for this session")
+	}
+	path := filepath.Join(dir, filepath.FromSlash(stored))
+	relative, err := filepath.Rel(dir, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("recorded file is outside the session directory")
+	}
+	return path, nil
+}
+
 func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

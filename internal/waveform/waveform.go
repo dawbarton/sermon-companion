@@ -64,7 +64,10 @@ func (g *Generator) Generate(ctx context.Context, id string) (Envelope, error) {
 		return Envelope{}, errors.New("the waveform is available after recording stops")
 	}
 	dir, _ := g.store.SessionDir(id)
-	source := filepath.Join(dir, session.AudioFile)
+	source, err := g.store.SessionFile(id, session.AudioFile)
+	if err != nil {
+		return Envelope{}, err
+	}
 	info, err := os.Stat(source)
 	if err != nil {
 		return Envelope{}, fmt.Errorf("recording not found: %w", err)

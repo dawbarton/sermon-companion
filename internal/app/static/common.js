@@ -17,8 +17,9 @@ window.SC = {
     return hours ? `${hours}:${minutes.toString().padStart(2, "0")}:${suffix}` : `${minutes}:${suffix}`;
   },
   parseTime(value) {
-    const parts = String(value).trim().split(":").map(Number);
-    if (!parts.length || parts.some(v => !Number.isFinite(v) || v < 0)) throw new Error("Use a time such as 12:34.5");
+    const fields = String(value).trim().split(":");
+    const parts = fields.map(Number);
+    if (fields.length > 3 || fields.some(field => field.trim() === "") || parts.some(v => !Number.isFinite(v) || v < 0)) throw new Error("Use a time such as 12:34.5");
     let result = 0;
     for (const part of parts) result = result * 60 + part;
     return result;

@@ -549,8 +549,12 @@ func (s *Server) audio(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
-	dir, _ := s.store.SessionDir(session.ID)
-	serveFile(w, r, filepath.Join(dir, session.AudioFile), "audio/flac", false)
+	path, err := s.store.SessionFile(session.ID, session.AudioFile)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	serveFile(w, r, path, "audio/flac", false)
 }
 
 func (s *Server) waveformEnvelope(w http.ResponseWriter, r *http.Request) {
@@ -568,8 +572,12 @@ func (s *Server) exportFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	dir, _ := s.store.SessionDir(session.ID)
-	serveFile(w, r, filepath.Join(dir, filepath.FromSlash(session.Export.Output)), "audio/mpeg", true)
+	path, err := s.store.SessionFile(session.ID, session.Export.Output)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	serveFile(w, r, path, "audio/mpeg", true)
 }
 
 func (s *Server) openExportFolder(w http.ResponseWriter, r *http.Request) {
