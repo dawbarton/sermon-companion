@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sermon recording</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="dock">
+  <header>
+    <h1><span id="status-dot" class="status-dot"></span>Sermon recording</h1>
+    <span id="timer" class="timer time">00:00:00</span>
+  </header>
+  <div id="start-panel" class="card start-panel">
+    <label>Service title <input id="title" placeholder="Sunday morning service"></label>
+    <button id="start" class="primary">Start continuous recording</button>
+  </div>
+  <div id="record-panel" class="hidden">
+    <div id="presets" class="preset-grid"></div>
+    <div class="actions">
+      <button id="marker">Add marker</button>
+      <button id="stop" class="danger">Stop service</button>
+    </div>
+    <p id="last" class="last">The complete audio is being kept.</p>
+  </div>
+  <p id="error" class="error"></p>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/dock.js"></script>
+</body>
+</html>
+

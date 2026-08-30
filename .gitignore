@@ -1,0 +1,19 @@
+# Reproducible build and delivery artefacts
+/dist/
+/outputs/
+/SermonCompanion
+/sermon-companion
+*.exe
+*.test
+*.out
+
+# Local recordings, generated waveforms, exports, and demo runs
+/work/
+/sessions/
+/config.json
+*.log
+
+# OS and editor state
+.DS_Store
+.idea/
+.vscode/

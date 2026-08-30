@@ -1,0 +1,96 @@
+:root {
+  color-scheme: dark;
+  --bg: #11151a;
+  --panel: #1a2028;
+  --panel-2: #222b35;
+  --text: #f4f5f6;
+  --muted: #aeb8c4;
+  --accent: #52b788;
+  --accent-2: #40916c;
+  --danger: #e76f51;
+  --line: #35404c;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+button, input { font: inherit; }
+button { border: 0; border-radius: .55rem; padding: .7rem .9rem; background: var(--panel-2); color: var(--text); cursor: pointer; }
+button:hover { filter: brightness(1.12); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent-2); }
+button.danger { background: #8f3c31; }
+button.active { background: var(--danger); }
+input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; padding: .6rem; background: #10151a; color: var(--text); }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: .8rem; padding: 1rem; }
+.status-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; margin-right: .45rem; background: #77818d; }
+.status-dot.live { background: #ef476f; box-shadow: 0 0 0 .28rem #ef476f22; }
+.error { color: #ff9b85; min-height: 1.2em; }
+.time { font-variant-numeric: tabular-nums; }
+
+/* OBS dock */
+.dock { padding: .8rem; min-width: 260px; }
+.dock header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .8rem; }
+.dock h1 { margin: 0; font-size: 1rem; letter-spacing: .08em; text-transform: uppercase; }
+.dock .timer { font-size: 1.45rem; font-weight: 700; }
+.dock .start-panel { display: grid; gap: .6rem; }
+.dock .preset-grid { display: grid; gap: .55rem; }
+.dock .preset { min-height: 3.3rem; text-align: left; font-weight: 650; border-left: .35rem solid var(--accent); }
+.dock .preset small { display: block; margin-top: .15rem; color: var(--muted); font-weight: 400; }
+.dock .actions { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .8rem; }
+.dock .last { margin: .7rem 0 0; font-size: .86rem; color: var(--muted); }
+
+/* Review application */
+.app-shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { border-right: 1px solid var(--line); padding: 1rem; background: #0d1116; }
+.sidebar h1 { margin: 0 0 1rem; font-size: 1.2rem; }
+.session-list { display: grid; gap: .55rem; }
+.session-card { display: block; width: 100%; text-align: left; border: 1px solid transparent; }
+.session-card.selected { border-color: var(--accent); }
+.session-card strong, .session-card small { display: block; }
+.session-card small { margin-top: .25rem; color: var(--muted); }
+.main { padding: 1.3rem; max-width: 1100px; width: 100%; margin: 0 auto; }
+.main-header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.main-header h2 { margin: 0 0 .2rem; }
+.main-header .actions { display: flex; gap: .55rem; }
+audio { width: 100%; margin: 1rem 0; }
+.waveform-card { margin: .4rem 0 1.2rem; }
+.waveform-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .8rem; margin-bottom: .5rem; }
+.waveform-controls { display: flex; flex-wrap: wrap; gap: .4rem; }
+.waveform-controls button { padding: .45rem .65rem; }
+.waveform-viewport { position: relative; height: 170px; overflow: hidden; border: 1px solid var(--line); border-radius: .55rem; background: #0b1015; touch-action: none; cursor: crosshair; user-select: none; }
+.waveform-viewport:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+#waveform-canvas, .segment-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.segment-overlay { pointer-events: none; }
+.wave-segment { position: absolute; top: .35rem; bottom: .35rem; min-width: 3px; border: 2px solid #79d2a5; border-radius: .3rem; background: #40916c33; pointer-events: auto; cursor: grab; overflow: visible; }
+.wave-segment.excluded { border-color: #8a95a1; background: #69758028; }
+.wave-segment.dragging { cursor: grabbing; background: #52b78855; }
+.wave-segment-label { position: absolute; left: .6rem; top: .35rem; max-width: calc(100% - 1.2rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: .15rem .35rem; border-radius: .25rem; background: #101820cc; font-size: .76rem; pointer-events: none; }
+.segment-handle { position: absolute; z-index: 2; top: 0; bottom: 0; width: .6rem; padding: 0; border-radius: 0; background: #79d2a5cc; cursor: ew-resize; }
+.segment-handle.start { left: 0; border-radius: .18rem 0 0 .18rem; }
+.segment-handle.end { right: 0; border-radius: 0 .18rem .18rem 0; }
+.playhead { position: absolute; z-index: 4; top: 0; bottom: 0; width: 2px; background: #f6bd60; pointer-events: none; box-shadow: 0 0 0 1px #0006; }
+.waveform-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); background: #0b1015cc; }
+.waveform-help { margin: .4rem 0 0; color: var(--muted); font-size: .82rem; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin: 1.2rem 0 .5rem; }
+.section-head h3 { margin: 0; }
+.segment-table { width: 100%; border-collapse: collapse; }
+.segment-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: .8rem; }
+.segment-table th, .segment-table td { padding: .45rem .3rem; border-bottom: 1px solid var(--line); }
+.segment-table input[type="checkbox"] { width: auto; transform: scale(1.2); }
+.segment-table .short { min-width: 7rem; }
+.segment-play { min-width: 4.5rem; }
+.markers { display: grid; gap: .45rem; }
+.marker { display: grid; grid-template-columns: 8rem 1fr 8rem; gap: .5rem; align-items: center; }
+.add-marker { display: grid; grid-template-columns: 1fr 1fr 8rem auto; gap: .5rem; margin-top: .65rem; }
+.empty { text-align: center; padding: 4rem 1rem; color: var(--muted); }
+@media (max-width: 760px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+  .session-list { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .segment-table { display: block; overflow-x: auto; }
+  .waveform-toolbar { align-items: flex-start; flex-direction: column; }
+  .waveform-viewport { height: 145px; }
+  .add-marker { grid-template-columns: 1fr; }
+}
