@@ -32,6 +32,7 @@ func TestExportSegmentsFiltersAndSorts(t *testing.T) {
 	segments := []store.Segment{
 		{ID: "later", Start: 20, End: &end30, Include: true, CreatedAt: now},
 		{ID: "excluded", Start: 10, End: &end20, Include: false, CreatedAt: now},
+		{ID: "archived", Start: 10, End: &end20, Include: true, Archived: true, CreatedAt: now},
 		{ID: "open", Start: 5, Include: true, CreatedAt: now},
 		{ID: "first", Start: 0, End: &end10, Include: true, CreatedAt: now},
 	}

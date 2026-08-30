@@ -64,7 +64,9 @@ NORMAL OPERATION
 6. Open http://127.0.0.1:8765/ in a browser. Each segment has its own Play and
    Stop button. For coarse adjustments, drag a segment or either of its edges on
    the waveform. Use Zoom and Pan, or enter exact start and end times, for fine
-   adjustments. Untick any part that should not be exported.
+   adjustments. Use Add segment for a missed interval, or Remove for an unwanted
+   one. Removed segments can be restored from the panel below the table. Untick
+   any part that should remain visible but not be exported.
 7. Click "Create MP3". Each included part is measured and normalised separately
    before the parts are joined. Download the finished MP3 when it is ready.
 

@@ -27,6 +27,7 @@ type Segment struct {
 	Start     float64   `json:"startSeconds"`
 	End       *float64  `json:"endSeconds,omitempty"`
 	Include   bool      `json:"include"`
+	Archived  bool      `json:"archived,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

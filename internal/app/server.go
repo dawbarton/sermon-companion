@@ -46,8 +46,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
+	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
 	mux.HandleFunc("PATCH /api/sessions/{id}/segments/{segmentID}", s.patchSegment)
+	mux.HandleFunc("DELETE /api/sessions/{id}/segments/{segmentID}", s.archiveSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/{segmentID}/stop", s.stopSegment)
+	mux.HandleFunc("POST /api/sessions/{id}/segments/{segmentID}/restore", s.restoreSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/markers", s.addMarker)
 	mux.HandleFunc("POST /api/sessions/{id}/export", s.export)
 	mux.HandleFunc("GET /api/sessions/{id}/audio", s.audio)
@@ -169,10 +172,60 @@ func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
 	session, err := s.store.Update(id, "segment.started", segment, func(session *store.Session) error {
 		closeOpenSegments(session, elapsed, now)
 		session.Segments = append(session.Segments, segment)
+		markExportStale(session)
 		return nil
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Kind    string  `json:"kind"`
+		Label   string  `json:"label"`
+		Start   float64 `json:"startSeconds"`
+		End     float64 `json:"endSeconds"`
+		Include *bool   `json:"include"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	request.Kind, request.Label = strings.TrimSpace(request.Kind), strings.TrimSpace(request.Label)
+	if request.Kind == "" {
+		request.Kind = "custom"
+	}
+	if request.Label == "" {
+		writeError(w, http.StatusBadRequest, errors.New("segment label is required"))
+		return
+	}
+	include := true
+	if request.Include != nil {
+		include = *request.Include
+	}
+	id := r.PathValue("id")
+	now := time.Now().UTC()
+	end := request.End
+	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, Start: request.Start, End: &end, Include: include, CreatedAt: now, UpdatedAt: now}
+	session, err := s.store.Update(id, "segment.added_manually", segment, func(session *store.Session) error {
+		if session.Status == "recording" || session.Status == "starting" {
+			return errors.New("use the OBS dock to mark segments while recording")
+		}
+		if segment.Start < 0 || *segment.End <= segment.Start {
+			return errors.New("segment times must satisfy 0 ≤ start < end")
+		}
+		if session.Duration > 0 && *segment.End > session.Duration+1 {
+			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
+		}
+		session.Segments = append(session.Segments, segment)
+		markExportStale(session)
+		return nil
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, session)
@@ -189,6 +242,9 @@ func (s *Server) stopSegment(w http.ResponseWriter, r *http.Request) {
 		segment := findSegment(session, segmentID)
 		if segment == nil {
 			return errors.New("segment not found")
+		}
+		if segment.Archived {
+			return errors.New("segment has been removed")
 		}
 		if segment.End != nil {
 			return errors.New("segment is already closed")
@@ -225,7 +281,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	before := findSegment(beforeSession, segmentID)
-	if before == nil {
+	if before == nil || before.Archived {
 		writeError(w, http.StatusNotFound, errors.New("segment not found"))
 		return
 	}
@@ -254,6 +310,60 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
 		segment.UpdatedAt = time.Now().UTC()
+		markExportStale(session)
+		return nil
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
+	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
+	beforeSession, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	before := findSegment(beforeSession, segmentID)
+	if before == nil || before.Archived {
+		writeError(w, http.StatusNotFound, errors.New("segment not found"))
+		return
+	}
+	beforeCopy := *before
+	session, err := s.store.Update(id, "segment.archived", beforeCopy, func(session *store.Session) error {
+		if session.Status == "recording" || session.Status == "starting" {
+			return errors.New("segments cannot be removed while recording")
+		}
+		segment := findSegment(session, segmentID)
+		if segment == nil || segment.Archived {
+			return errors.New("segment not found")
+		}
+		segment.Archived, segment.UpdatedAt = true, time.Now().UTC()
+		markExportStale(session)
+		return nil
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
+	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
+	session, err := s.store.Update(id, "segment.restored", map[string]string{"segmentId": segmentID}, func(session *store.Session) error {
+		if session.Status == "recording" || session.Status == "starting" {
+			return errors.New("segments cannot be restored while recording")
+		}
+		segment := findSegment(session, segmentID)
+		if segment == nil || !segment.Archived {
+			return errors.New("removed segment not found")
+		}
+		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
+		markExportStale(session)
 		return nil
 	})
 	if err != nil {
@@ -397,6 +507,13 @@ func findSegment(session *store.Session, id string) *store.Segment {
 }
 
 func floatPointer(v float64) *float64 { return &v }
+
+func markExportStale(session *store.Session) {
+	if session.Export != nil && session.Export.Status == "completed" {
+		session.Export.Status = "stale"
+		session.Export.Error = "Segments changed after this MP3 was created."
+	}
+}
 
 func decodeJSON(r *http.Request, destination interface{}) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))

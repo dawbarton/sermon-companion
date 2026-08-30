@@ -41,11 +41,23 @@
         </section>
         <p id="export-status" class="muted"></p>
         <p id="error" class="error"></p>
-        <div class="section-head"><h3>Segments</h3><span class="muted">Each included segment is normalised separately.</span></div>
+        <div class="section-head">
+          <h3>Segments</h3>
+          <div class="section-actions"><span class="muted">Each included segment is normalised separately.</span><button id="show-add-segment">Add segment</button></div>
+        </div>
+        <form id="add-segment" class="segment-add-form card hidden">
+          <label>Label <input id="new-segment-label" placeholder="Notices" required></label>
+          <label>Type <input id="new-segment-kind" value="custom" required></label>
+          <label>Start <input id="new-segment-start" placeholder="mm:ss" required></label>
+          <label>End <input id="new-segment-end" placeholder="mm:ss" required></label>
+          <div class="form-actions"><button type="submit" class="primary">Add segment</button><button id="cancel-add-segment" type="button">Cancel</button></div>
+          <p class="muted">Tip: click the waveform first to use that position as the initial start time.</p>
+        </form>
         <table class="segment-table">
           <thead><tr><th>Listen</th><th>Use</th><th>Label</th><th>Type</th><th>Start</th><th>End</th><th></th></tr></thead>
           <tbody id="segments"></tbody>
         </table>
+        <details id="removed-panel" class="removed-panel hidden"><summary>Removed segments (<span id="removed-count">0</span>)</summary><div id="removed-segments" class="removed-segments"></div></details>
         <div class="section-head"><h3>Markers</h3></div>
         <div id="markers" class="markers"></div>
         <form id="add-marker" class="add-marker">

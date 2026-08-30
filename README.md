@@ -19,7 +19,8 @@ validation on the church's Windows and HDMI-capture hardware.
   atomic current snapshot, not the only copy of the editing history.
 - The review page caches a compact waveform envelope for long services. It can
   zoom and pan without loading the complete decoded recording into the browser;
-  segment bodies and edges are draggable, and every segment has bounded playback.
+  segment bodies and edges are draggable, every segment has bounded playback,
+  and segments can be added, removed, or restored after the service.
 - FFmpeg is the only runtime dependency outside the single application binary.
   Its input adapter is selected in `config.json`: DirectShow on Windows,
   AVFoundation on macOS, or a custom argument list.
@@ -47,8 +48,9 @@ The demo records a real-time synthetic tone rather than an audio device. Open:
 
 Use the dock to start a recording, mark several segments, and stop. In the
 review page, click a segment's Play button to audition it, or zoom and pan the
-waveform and drag its body or edges to adjust its times. Then create the MP3. Demo data is
-written beneath `work/demo-data` and is ignored by Git.
+waveform and drag its body or edges to adjust its times. The segment manager can
+also add a missed interval or remove an unwanted one. Then create the MP3. Demo
+data is written beneath `work/demo-data` and is ignored by Git.
 
 For capture from a macOS input, omit `--demo`. On first launch the application
 creates its configuration in `~/Library/Application Support/Sermon Companion`.

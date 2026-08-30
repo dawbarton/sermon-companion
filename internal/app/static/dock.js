@@ -9,7 +9,7 @@ function render() {
   elements["status-dot"].classList.toggle("live", status.active);
   elements.timer.textContent = formatTime(status.elapsedSeconds || 0);
   if (!status.active) return;
-  const open = status.session?.segments?.find(segment => segment.endSeconds == null);
+  const open = status.session?.segments?.find(segment => !segment.archived && segment.endSeconds == null);
   elements.presets.replaceChildren(...status.presets.map(preset => {
     const button = document.createElement("button");
     const isOpen = open?.kind === preset.kind;
@@ -69,4 +69,3 @@ elements.stop.addEventListener("click", async () => {
 
 refresh();
 setInterval(refresh, 1000);
-

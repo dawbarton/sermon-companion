@@ -37,7 +37,10 @@ altering session storage, the UI, or mastering.
 ## Generic segment model
 
 A segment has a stable ID, free-form `kind`, user-facing `label`, start and end
-times in seconds, and an `include` flag. The three dock presets are configuration:
+times in seconds, an `include` flag, and an optional `archived` flag. Removing a
+segment archives it from the active editor and mastering pipeline; restoring it
+clears that flag. The event journal retains both operations. The three dock
+presets are configuration:
 
 ```json
 [
@@ -98,6 +101,13 @@ moves a segment without changing its duration; dragging an edge changes only
 the corresponding timestamp. A drag is written through the same audited
 `segment.adjusted` API as the text fields. Per-segment playback seeks to the
 start and pauses automatically at the end.
+
+Manual additions use the same generic model and appear immediately on the
+waveform. Removal is deliberately reversible: the current snapshot marks a
+segment as archived, while `events.jsonl` retains its complete prior value.
+Adding, editing, removing, or restoring a segment marks any earlier MP3 as
+stale, so the interface prompts for a new export rather than presenting an old
+file as current.
 
 ## Local API
 

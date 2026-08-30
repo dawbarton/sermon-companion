@@ -193,7 +193,7 @@ func runLogged(program string, args []string, dir string, logFile *os.File) erro
 func exportSegments(all []store.Segment) []store.Segment {
 	segments := make([]store.Segment, 0, len(all))
 	for _, segment := range all {
-		if segment.Include && segment.End != nil && *segment.End > segment.Start {
+		if !segment.Archived && segment.Include && segment.End != nil && *segment.End > segment.Start {
 			segments = append(segments, segment)
 		}
 	}

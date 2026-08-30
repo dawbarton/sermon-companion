@@ -5,7 +5,10 @@ const elementIDs = [
   "waveform-viewport", "waveform-canvas", "segment-overlay", "playhead",
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
-  "marker-kind", "marker-time", "export", "download", "export-status", "error"
+  "marker-kind", "marker-time", "export", "download", "export-status", "error",
+  "show-add-segment", "add-segment", "cancel-add-segment", "new-segment-label",
+  "new-segment-kind", "new-segment-start", "new-segment-end", "removed-panel",
+  "removed-count", "removed-segments"
 ];
 const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElementById(id)]));
 
@@ -80,15 +83,21 @@ function render() {
   elements.markers.replaceChildren(...[...current.markers].sort((a,b) => a.atSeconds-b.atSeconds).map(markerRow));
   renderWaveform();
   const exp = current.export;
-  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : "MP3 ready." : "";
+  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
   elements.export.disabled = current.status === "recording" || exp?.status === "running";
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
 }
 
 function renderSegmentRows() {
-  elements.segments.replaceChildren(...[...current.segments].sort((a,b) => a.startSeconds-b.startSeconds).map(segmentRow));
+  elements.segments.replaceChildren(...activeSegments().sort((a,b) => a.startSeconds-b.startSeconds).map(segmentRow));
+  const removed = current.segments.filter(segment => segment.archived).sort((a,b) => a.startSeconds-b.startSeconds);
+  elements["removed-count"].textContent = removed.length;
+  elements["removed-panel"].classList.toggle("hidden", removed.length === 0);
+  elements["removed-segments"].replaceChildren(...removed.map(removedSegmentRow));
 }
+
+function activeSegments() { return current?.segments.filter(segment => !segment.archived) || []; }
 
 function segmentRow(segment) {
   const row = document.createElement("tr");
@@ -112,8 +121,34 @@ function segmentRow(segment) {
     } catch (error) { showError(error); }
     finally { save.disabled = false; }
   });
-  for (const control of [play, include, label, kind, start, end, save]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
+  const remove = document.createElement("button"); remove.textContent = "Remove"; remove.className = "remove";
+  remove.addEventListener("click", () => removeSegment(segment));
+  const actions = document.createElement("div"); actions.className = "row-actions"; actions.append(save, remove);
+  for (const control of [play, include, label, kind, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
   return row;
+}
+
+function removedSegmentRow(segment) {
+  const row = document.createElement("div"); row.className = "removed-segment";
+  const label = document.createElement("strong"); label.textContent = segment.label;
+  const times = document.createElement("span"); times.className = "muted time"; times.textContent = `${formatTime(segment.startSeconds, true)} – ${formatTime(segment.endSeconds, true)}`;
+  const restore = document.createElement("button"); restore.textContent = "Restore"; restore.addEventListener("click", () => restoreSegment(segment));
+  row.append(label, times, restore); return row;
+}
+
+async function removeSegment(segment) {
+  if (playingSegmentID === segment.id) stopSegmentPlayback();
+  try {
+    current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "DELETE"});
+    elements.error.textContent = ""; render();
+  } catch (error) { showError(error); }
+}
+
+async function restoreSegment(segment) {
+  try {
+    current = await api(`/api/sessions/${current.id}/segments/${segment.id}/restore`, {method: "POST", body: "{}"});
+    elements.error.textContent = ""; render();
+  } catch (error) { showError(error); }
 }
 
 async function toggleSegmentPlayback(segment) {
@@ -138,7 +173,7 @@ function stopSegmentPlayback() {
 }
 
 function playingSegment() {
-  return current?.segments.find(segment => segment.id === playingSegmentID) || null;
+  return activeSegments().find(segment => segment.id === playingSegmentID) || null;
 }
 
 function markerRow(marker) {
@@ -200,7 +235,7 @@ function drawSegments() {
   const end = waveform.viewEnd;
   const span = Math.max(.001, end-start);
   const pieces = [];
-  for (const segment of current.segments) {
+  for (const segment of activeSegments()) {
     if (segment.endSeconds == null || segment.endSeconds < start || segment.startSeconds > end) continue;
     const block = document.createElement("div");
     block.className = `wave-segment${segment.include ? "" : " excluded"}${dragState?.segmentID === segment.id ? " dragging" : ""}`;
@@ -353,6 +388,35 @@ elements["add-marker"].addEventListener("submit", async event => {
   try {
     current = await api(`/api/sessions/${current.id}/markers`, {method: "POST", body: JSON.stringify({label: elements["marker-label"].value, kind: elements["marker-kind"].value, atSeconds: parseTime(elements["marker-time"].value)})});
     elements["marker-label"].value = ""; elements["marker-kind"].value = ""; render();
+  } catch (error) { showError(error); }
+});
+
+elements["show-add-segment"].addEventListener("click", () => {
+  const duration = Math.max(current?.durationSeconds || waveform.duration || 0, .1);
+  let start = clamp(elements.audio.currentTime || 0, 0, Math.max(0, duration-.1));
+  if (start >= duration-.1) start = Math.max(0, duration-60);
+  const end = Math.min(duration, start+60);
+  elements["new-segment-label"].value = "";
+  elements["new-segment-kind"].value = "custom";
+  elements["new-segment-start"].value = formatTime(start, true);
+  elements["new-segment-end"].value = formatTime(Math.max(start+.1, end), true);
+  elements["add-segment"].classList.remove("hidden");
+  elements["new-segment-label"].focus();
+});
+
+elements["cancel-add-segment"].addEventListener("click", () => elements["add-segment"].classList.add("hidden"));
+
+elements["add-segment"].addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    current = await api(`/api/sessions/${current.id}/segments/manual`, {method: "POST", body: JSON.stringify({
+      label: elements["new-segment-label"].value,
+      kind: elements["new-segment-kind"].value,
+      startSeconds: parseTime(elements["new-segment-start"].value),
+      endSeconds: parseTime(elements["new-segment-end"].value)
+    })});
+    elements["add-segment"].classList.add("hidden");
+    elements.error.textContent = ""; render();
   } catch (error) { showError(error); }
 });
 
