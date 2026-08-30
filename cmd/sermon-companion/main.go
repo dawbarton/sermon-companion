@@ -25,7 +25,7 @@ func main() {
 	dataDir := flag.String("data-dir", defaultData, "directory for configuration and recordings")
 	configPath := flag.String("config", "", "configuration file (default: DATA-DIR/config.json)")
 	demo := flag.Bool("demo", false, "capture a synthetic tone instead of an audio device")
-	listDevices := flag.Bool("list-devices", false, "ask FFmpeg to list available capture devices")
+	listDevices := flag.Bool("list-devices", false, "list available capture devices")
 	noOpen := flag.Bool("no-open", false, "do not open the review page in a browser")
 	flag.Parse()
 
