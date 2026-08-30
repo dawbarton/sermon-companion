@@ -1,9 +1,22 @@
 param(
-    [string]$FFmpegDirectory = ""
+    [string]$FFmpegDirectory = "",
+    [string]$CCompiler = ""
 )
 $ErrorActionPreference = "Stop"
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
+$env:CGO_ENABLED = "1"
+if ($CCompiler) {
+    $env:CC = $CCompiler
+}
+$compiler = $env:CC
+if (-not $compiler) {
+    $compiler = "gcc"
+}
+if (-not (Get-Command $compiler -ErrorAction SilentlyContinue)) {
+    throw "A Windows-capable C compiler is required for miniaudio. Install GCC on Windows, or pass -CCompiler x86_64-w64-mingw32-gcc when cross-compiling."
+}
+$env:CC = $compiler
 New-Item -ItemType Directory -Force -Path "dist\SermonCompanion" | Out-Null
 go build -trimpath -ldflags "-s -w" -o "dist\SermonCompanion\SermonCompanion.exe" .\cmd\sermon-companion
 Copy-Item "scripts\Start Sermon Companion.cmd" "dist\SermonCompanion\Start Sermon Companion.cmd"

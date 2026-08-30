@@ -6,33 +6,55 @@
 HDMI audio device                         OBS custom browser dock
         |                                           |
         v                                           v
-FFmpeg capture process <---- Sermon Companion local HTTP server
-        |                         |                 |
-        v                         v                 v
-audio.part.flac          session.json       events.jsonl
+miniaudio callback --------> audio-frame clock <---- local HTTP server
         |                         |
-        +-------------> review and marker adjustment
-                                  |
-                                  v
-                     two-pass loudnorm per segment
-                                  |
-                                  v
-                             final MP3
+        v                         v
+bounded PCM queue             session.json + events.jsonl
+        |
+        v
+FFmpeg raw-PCM FLAC encoder ---> audio.part.flac
+        |                                  |
+        +--------------------------> review and marker adjustment
+                                             |
+                                             v
+                                two-pass loudnorm per segment
+                                             |
+                                             v
+                                        final MP3
 ```
 
-Sermon Companion does not link to an audio library. `internal/capture` builds an
-FFmpeg command from a small adapter configuration. The shipped adapters are:
+Sermon Companion links miniaudio through the pinned `malgo` Go bindings. The
+primary source uses CoreAudio on macOS and shared-mode WASAPI on Windows. Its
+callback copies signed 16-bit PCM into a preallocated, bounded queue; a separate
+goroutine feeds FFmpeg's raw PCM input and produces FLAC. The callback never
+performs disk or process I/O.
 
-| Driver | Development or production use | FFmpeg input |
+| Backend | Use | Timing |
 | --- | --- | --- |
-| `dshow` | Windows HDMI capture | `-f dshow -i audio=DEVICE` |
-| `avfoundation` | macOS input-device prototype | `-f avfoundation -i :DEVICE` |
-| `lavfi` | deterministic synthetic test | `-f lavfi -i FILTER` |
-| `custom` | future platform or routing adapter | explicit `inputArgs` array |
+| `miniaudio` | Primary macOS and Windows device capture | Accepted audio frames |
+| `ffmpeg` + `lavfi` | Deterministic demo and integration tests | Estimated wall time |
+| `ffmpeg` + device/custom driver | Explicit diagnostic fallback | Estimated wall time |
 
-All adapters produce the same stereo, 48 kHz FLAC source. A native Windows
-capture implementation can therefore replace only `internal/capture`, without
-altering session storage, the UI, or mastering.
+The default recording format is stereo, 48 kHz, signed 16-bit PCM encoded to
+FLAC. A future OBS raw-mix source can feed the same queue and frame clock without
+altering session storage, the UI, or mastering. This is the preferred fallback
+if OBS and the companion cannot share the HDMI device.
+
+## Audio clock and buffering
+
+The audio callback records cumulative accepted frames alongside monotonic local
+times. When the operator starts or stops a segment, the server waits briefly for
+the callback following the button event and interpolates between the surrounding
+frame anchors. The stored frame number is canonical; seconds are derived for the
+browser. Device-clock drift therefore cannot accumulate between a marker and the
+recorded file.
+
+The PCM queue defaults to ten seconds. If it fills, capture stops and the session
+is marked failed rather than silently dropping samples. A completed capture is
+published only when all accepted frames were written to the encoder. Session
+metadata records accepted and written frames, dropped frames, callback count,
+queue high-water level, wall and audio durations, and their drift in parts per
+million.
 
 ## Generic segment model
 
@@ -41,8 +63,9 @@ Both fields remain editable after capture and are included in the append-only
 metadata history. A new session's church defaults from the top-level `church`
 setting in `config.json`.
 
-A segment has a stable ID, free-form `kind`, user-facing `label`, start and end
-times in seconds, an `include` flag, and an optional `archived` flag. Removing a
+A segment has a stable ID, free-form `kind`, user-facing `label`, canonical start
+and end frames, derived times in seconds, an `include` flag, and an optional
+`archived` flag. Removing a
 segment archives it from the active editor and mastering pipeline; restoring it
 clears that flag. The event journal retains both operations. The three dock
 presets are configuration:
@@ -93,7 +116,8 @@ when the operator clicks "Open MP3 folder".
 
 ## Mastering
 
-Included, complete segments are sorted chronologically. Each is processed with
+Included, complete segments are sorted chronologically. FFmpeg trims each one by
+its exact start and end sample before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
 normalised FLAC. These homogeneous files are concatenated and encoded once with
@@ -138,4 +162,5 @@ The UI uses a small JSON API beneath `/api`. It supports session start and stop,
 generic segment start, stop, and adjustment, point markers, session history,
 lossless playback, waveform-envelope generation, and asynchronous export. The server listens on loopback by
 default and sets a restrictive content-security policy. It has no cloud or OBS
-WebSocket dependency.
+WebSocket dependency. Live status includes the audio-frame position and capture
+health statistics.

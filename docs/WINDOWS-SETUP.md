@@ -24,8 +24,9 @@ ONE-TIME TECHNICAL SETUP
 
      SermonCompanion.exe --list-devices
 
-2. Find the exact audio-device name associated with the HDMI capture. Copy the
-   name exactly.
+2. Find the audio device associated with the HDMI capture. Copy its `id` value;
+   this avoids ambiguity when Windows exposes several devices with similar
+   names.
 
 3. Start Sermon Companion once, then close it. Open:
 
@@ -38,14 +39,17 @@ ONE-TIME TECHNICAL SETUP
 
 5. In the "capture" section, use:
 
-     "driver": "dshow",
-     "device": "THE EXACT DEVICE NAME",
+     "backend": "miniaudio",
+     "deviceId": "THE ID PRINTED BY --list-devices",
+     "device": "THE DEVICE NAME (for operator reference)",
      "sampleRate": 48000,
-     "channels": 2
+     "channels": 2,
+     "periodMilliseconds": 20,
+     "bufferSeconds": 10
 
 6. Start the application again and make a short test recording. Confirm that
    the review page plays the expected church mix, not a microphone or silent
-   device.
+   device, and that it reports zero dropped frames.
 
 7. In OBS, choose View, Docks, Custom Browser Docks. Add:
 
@@ -83,6 +87,10 @@ The complete FLAC remains available if an operator makes a mistake. Creating a
 new MP3 never changes it. Recreating an MP3 keeps the requested simple filename;
 the previous version is retained under `exports\previous`.
 
+If the dock displays a recording problem or any dropped frames, retain the
+partial recording but do not assume it is complete. Give `capture.log` and the
+session folder to the person maintaining the installation.
+
 
 RECOVERY
 
@@ -96,6 +104,7 @@ IMPORTANT HARDWARE TEST
 
 Some Windows audio drivers permit only one program at a time to read a capture
 device. Test OBS streaming and Sermon Companion recording simultaneously for a
-complete rehearsal. If the second program cannot open the HDMI device, configure
-OBS to monitor its final mix to a dedicated virtual or physical audio device,
-and select that monitoring device in Sermon Companion instead.
+complete rehearsal. If the companion cannot open the HDMI device, use a
+dedicated OBS monitoring device temporarily. The intended permanent fallback is
+an OBS raw-mix adapter, which will feed the companion exactly the audio already
+being streamed without opening the HDMI device a second time.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -217,9 +218,25 @@ func (n *nativeCapture) run(device *malgo.Device, malgoContext *malgo.AllocatedC
 	if resultErr == nil && info.TotalFrames != info.WrittenFrames {
 		resultErr = fmt.Errorf("capture accepted %d frames but the encoder received %d", info.TotalFrames, info.WrittenFrames)
 	}
+	if resultErr == nil {
+		duration, probeErr := probeDuration(n.config.FFprobe, partPath)
+		encodedFrames := uint64(math.Round(duration * float64(info.SampleRate)))
+		if probeErr != nil {
+			resultErr = fmt.Errorf("verify FLAC duration: %w", probeErr)
+		} else if frameDifference(encodedFrames, info.WrittenFrames) > 1 {
+			resultErr = fmt.Errorf("FLAC contains %d frames but the encoder received %d", encodedFrames, info.WrittenFrames)
+		}
+	}
 	fmt.Fprintf(logFile, "capture finished: accepted=%d written=%d dropped=%d high-water=%d drift=%.1f ppm error=%v\n", info.TotalFrames, info.WrittenFrames, info.DroppedFrames, info.QueueHighWaterFrames, info.ClockDriftPPM, resultErr)
 	n.done <- captureResult{Info: info, PartPath: partPath, Error: resultErr}
 	close(n.done)
+}
+
+func frameDifference(a, b uint64) uint64 {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 func (n *nativeCapture) signalFailure(err error) {
@@ -248,20 +265,23 @@ func (n *nativeCapture) Info() store.CaptureInfo {
 
 func selectMiniaudioDevice(context malgo.Context, requestedID, requestedName string) (*malgo.DeviceInfo, error) {
 	requestedID, requestedName = strings.TrimSpace(requestedID), strings.TrimSpace(requestedName)
-	if requestedID == "" && (requestedName == "" || strings.EqualFold(requestedName, "default")) {
-		return nil, nil
-	}
 	devices, err := context.Devices(malgo.Capture)
 	if err != nil {
 		return nil, fmt.Errorf("list miniaudio capture devices: %w", err)
 	}
 	for index := range devices {
+		if requestedID == "" && (requestedName == "" || strings.EqualFold(requestedName, "default")) && devices[index].IsDefault != 0 {
+			return &devices[index], nil
+		}
 		if requestedID != "" && strings.EqualFold(devices[index].ID.String(), requestedID) {
 			return &devices[index], nil
 		}
 		if requestedID == "" && strings.EqualFold(devices[index].Name(), requestedName) {
 			return &devices[index], nil
 		}
+	}
+	if requestedID == "" && (requestedName == "" || strings.EqualFold(requestedName, "default")) {
+		return nil, nil
 	}
 	if requestedID != "" {
 		return nil, fmt.Errorf("miniaudio capture device ID %q was not found; run --list-devices", requestedID)

@@ -13,6 +13,11 @@ validation on the church's Windows and HDMI-capture hardware.
 
 - The complete service is retained as a lossless FLAC recording, so a late or
   mistaken button press does not lose audio.
+- Live audio is captured through miniaudio rather than FFmpeg's device
+  demuxers. A bounded PCM queue feeds FFmpeg only as a FLAC encoder, avoiding
+  the AVFoundation timestamp and capture artefacts observed during development.
+- Segment and marker positions come from the accepted audio-frame count, not
+  elapsed wall time, so device-clock drift does not accumulate in the edits.
 - `Reading`, `Sermon`, and `Q&A` are merely default presets. The stored segment
   model accepts arbitrary `kind` and `label` values.
 - Each service stores an editable title and church. New services inherit the
@@ -27,20 +32,21 @@ validation on the church's Windows and HDMI-capture hardware.
 - Segment boundaries may touch but cannot overlap. Waveform drags stop at the
   current neighbouring segments rather than jumping over or reordering them;
   the same rule is enforced for typed times and exports.
-- FFmpeg is the only runtime dependency outside the single application binary.
-  Its input adapter is selected in `config.json`: DirectShow on Windows,
-  AVFoundation on macOS, or a custom argument list.
+- FFmpeg and FFprobe are the only runtime dependencies outside the single
+  application binary. The former receives raw PCM for FLAC encoding and remains
+  responsible for file-based mastering and MP3 export.
 - The lossless source is never modified. MP3s and intermediate normalised
   segments are derived outputs.
 
-FFmpeg documents [DirectShow and AVFoundation capture](https://ffmpeg.org/ffmpeg-devices.html),
-and its [`loudnorm` filter](https://ffmpeg.org/ffmpeg-filters.html#loudnorm)
+Miniaudio documents its [cross-platform capture API](https://miniaud.io/docs/manual/),
+and FFmpeg's [`loudnorm` filter](https://ffmpeg.org/ffmpeg-filters.html#loudnorm)
 implements EBU R128 loudness normalisation. The user interface is an ordinary
 local page, compatible with OBS's Chromium-based [browser support](https://obsproject.com/kb/browser-source).
 
 ## Try it on macOS
 
-Requirements: Go 1.23 or later, FFmpeg, and FFprobe on `PATH`.
+Requirements: Go 1.23 or later, a working C compiler for cgo, FFmpeg, and
+FFprobe on `PATH`.
 
 ```sh
 make test
@@ -63,7 +69,7 @@ edited church field. The review page can open the containing folder directly.
 
 For capture from a macOS input, omit `--demo`. On first launch the application
 creates its configuration in `~/Library/Application Support/Sermon Companion`.
-List AVFoundation devices with:
+List miniaudio devices and their stable identifiers with:
 
 ```sh
 go run ./cmd/sermon-companion --list-devices
@@ -76,7 +82,7 @@ dock setup. A distributable x86-64 folder can be built on macOS, Linux, or
 Windows with:
 
 ```powershell
-pwsh -File scripts/build-windows.ps1 -FFmpegDirectory C:\path\to\ffmpeg\bin
+pwsh -File scripts/build-windows.ps1 -FFmpegDirectory C:\path\to\ffmpeg\bin -CCompiler gcc
 ```
 
 The output in `dist/SermonCompanion` contains the application, start shortcut,
@@ -88,7 +94,7 @@ required on the church computer.
 ```text
 cmd/sermon-companion/   application entry point
 internal/app/           local HTTP API and embedded browser UI
-internal/capture/       replaceable FFmpeg capture adapters and lifecycle
+internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback
 internal/master/        per-segment two-pass loudness normalisation and MP3
 internal/store/         versioned session model and append-only event journal
 docs/                   deployment and architecture notes
@@ -97,10 +103,12 @@ scripts/                Windows packaging and launch helpers
 
 ## Current prototype boundary
 
-The capture, recovery, editing, and mastering paths are implemented and tested
-with a synthetic source. Before routine use, the exact HDMI DirectShow device
-name, access by OBS and FFmpeg at the same time, channel layout, and a complete
-service-length recording must be validated on the church Windows computer.
-Some device drivers allow only one application to open a device. If the HDMI
-device is exclusive, the next adapter should capture a dedicated OBS audio
-monitoring device or an OBS-recorded lossless audio track instead.
+The buffering, recovery, editing, and mastering paths are automated-tested; the
+native capture path also requires a normal host process with microphone/audio
+permission, which the Codex sandbox cannot provide. Before routine use, the
+exact miniaudio HDMI device identifier, access by OBS and Sermon Companion at
+the same time, channel layout, and a complete service-length recording must be
+validated on the church Windows computer. Some device drivers allow only one
+application to open a device. If the HDMI device is exclusive, the planned
+fallback is a thin OBS raw-mix adapter feeding the same PCM recorder and sample
+clock, rather than a second device capture.

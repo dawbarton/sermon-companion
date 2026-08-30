@@ -18,4 +18,7 @@ func TestExistingConfigGetsChurchDefault(t *testing.T) {
 	if c.Church != "Church" {
 		t.Fatalf("church default = %q", c.Church)
 	}
+	if c.Capture.Backend != "miniaudio" || c.Capture.PeriodMS != 20 || c.Capture.BufferSecs != 10 {
+		t.Fatalf("unexpected native capture defaults: %#v", c.Capture)
+	}
 }

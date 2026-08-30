@@ -8,14 +8,13 @@ segments in an OBS Custom Browser Dock, provides post-service waveform editing
 and auditioning, normalises each included segment independently, and produces a
 single MP3.
 
-Production deployment targets Windows and an HDMI capture-audio device. macOS
-and the synthetic `lavfi` input support development without the church hardware.
-The prototype is functional and tested with synthetic audio, but the precise
-DirectShow device name, simultaneous access by OBS and FFmpeg, channel layout,
-and a complete service-length recording still require validation on the church
-computer. Some Windows capture drivers are exclusive; if so, use a dedicated
-OBS audio-monitoring device or an OBS-recorded lossless track rather than
-redesigning the session, editing, or mastering layers.
+Production deployment targets Windows and an HDMI capture-audio device. The
+primary backend uses miniaudio through `malgo`; synthetic `lavfi` input remains
+available for deterministic development. The precise miniaudio device ID,
+simultaneous access by OBS and the companion, channel layout, and a complete
+service-length recording still require validation on the church computer. If
+the device is exclusive, add an OBS raw-mix source feeding the existing PCM
+queue rather than redesigning the session, editing, or mastering layers.
 
 Read `README.md`, `docs/ARCHITECTURE.md`, and `docs/WINDOWS-SETUP.md` before
 changing user-visible behaviour or deployment.
@@ -26,6 +25,12 @@ changing user-visible behaviour or deployment.
   overwrite `audio.flac` in place.
 - Recording is continuous. Dock actions create generic markers and segments;
   they do not pause the underlying capture.
+- Audio-frame positions are canonical for live segments and markers. Never
+  replace them with wall-clock elapsed time; seconds are a derived UI value.
+- The native callback must only copy into its preallocated bounded queue and
+  advance the frame clock. Never perform disk, process, or metadata I/O there.
+- Queue overflow or an accepted/written frame mismatch is a capture failure.
+  Never hide missing samples or publish an apparently complete FLAC.
 - `Reading`, `Sermon`, and `Q&A` are configurable presets, not special backend
   types. Keep the marker and segment model generic and extensible.
 - The ordinary interface exposes the user-facing segment `label`. The backend
@@ -59,15 +64,16 @@ changing user-visible behaviour or deployment.
 
 ## Architecture and important files
 
-The project is a Go 1.23 module with no third-party Go dependencies. The browser
-assets are embedded in the application binary; FFmpeg and FFprobe are the only
-external runtime dependencies.
+The project is a Go 1.23 module with pinned `malgo`/miniaudio bindings. Native
+capture requires cgo and a C compiler at build time. The browser assets are
+embedded in the application binary; FFmpeg and FFprobe are the only external
+runtime dependencies.
 
 - `cmd/sermon-companion/main.go`: flags, platform data directory, application
   assembly, local server lifecycle, and bundled-FFmpeg discovery.
 - `internal/config`: configuration defaults and create-on-first-run behaviour.
-- `internal/capture`: replaceable FFmpeg input adapters and recording lifecycle.
-  Supported drivers are `dshow`, `avfoundation`, `lavfi`, and `custom`.
+- `internal/capture`: miniaudio source, bounded PCM buffering, audio-frame clock,
+  FLAC encoder lifecycle, device enumeration, and explicit FFmpeg fallback.
 - `internal/store`: versioned session model, atomic snapshot persistence,
   append-only event journal, and segment invariants.
 - `internal/app`: loopback HTTP API and embedded dock/manager UI.
@@ -122,24 +128,28 @@ staleness as relevant. Browser automation may not support synthetic pointer
 events, so supplement UI inspection with focused JavaScript review and API/store
 tests; state any interaction that could not be automated.
 
-Before calling a release build complete, also cross-build the Windows binary or
-run `scripts/build-windows.ps1`, as appropriate. Hardware-dependent DirectShow
-behaviour cannot be certified on macOS; report this boundary explicitly.
+Before calling a release build complete, run `scripts/build-windows.ps1` with a
+Windows-capable C compiler. A pure-Go cross-build compiles only the no-cgo stub
+and is not a usable miniaudio release. Hardware-dependent WASAPI behaviour
+cannot be certified on macOS; report this boundary explicitly.
 
 ## Code and persistence practices
 
 - Keep dependencies minimal. Prefer the Go standard library and native browser
   APIs unless a dependency has a clear maintenance benefit.
 - Keep platform-specific capture concerns behind `internal/capture`. Do not let
-  DirectShow assumptions leak into the store, API, UI, waveform, or mastering
+  CoreAudio or WASAPI assumptions leak into the store, API, UI, waveform, or mastering
   packages.
 - Validate data at every trust boundary. UI constraints are usability features,
   not substitutes for API and mastering validation.
 - Use atomic writes and explicit error handling for recordings, metadata, and
   exports. A power loss or forced restart must leave recoverable source audio
   and intelligible session state.
-- Add focused unit tests for pure rules, HTTP tests for API behaviour, and
-  FFmpeg-backed integration tests for capture, waveform, and mastering paths.
+- Add focused unit tests for pure rules and the PCM queue, HTTP tests for API
+  behaviour, and FFmpeg-backed integration tests for encoding, waveform, and
+  mastering paths. Real miniaudio device tests require a normal host process
+  with audio permission and cannot be claimed from a sandbox exposing only a
+  null device.
 - Use British English in UI text and documentation.
 - Keep `README.md`, architecture notes, and Windows operator instructions in
   step with user-visible or deployment changes.
@@ -169,7 +179,9 @@ behaviour cannot be certified on macOS; report this boundary explicitly.
 - The compact waveform cache uses 20 peaks per second and the browser renders
   only the visible range, supporting roughly 75-minute services with zoom and
   pan.
-- The lossless capture format is stereo, 48 kHz FLAC across all adapters.
+- The default lossless capture format is stereo, 48 kHz, signed 16-bit PCM
+  encoded to FLAC. Session metadata records the actual capture format and frame
+  counts.
 - Default mastering targets are -16 LUFS integrated loudness, 11 LU loudness
   range, -1.5 dBTP true peak, and 128 kbit/s MP3.
 - Opening the MP3 folder is a local operating-system action initiated by the
