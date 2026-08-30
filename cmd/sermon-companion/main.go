@@ -38,12 +38,13 @@ func main() {
 	}
 	resolveBundledFFmpeg(&c)
 	if *demo {
+		c.Capture.Backend = "ffmpeg"
 		c.Capture.Driver, c.Capture.Device = "lavfi", "sine=frequency=440:sample_rate=48000"
 	}
 	if *listDevices {
-		cmd := exec.Command(c.FFmpeg, capture.DeviceListArgs()...)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		_ = cmd.Run() // Device-list commands conventionally return a non-zero status after listing.
+		if err := capture.PrintDevices(c, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 
@@ -72,7 +73,7 @@ func main() {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	<-signals
-	if _, _, active := captureManager.Active(); active {
+	if _, _, _, active := captureManager.Active(); active {
 		log.Print("stopping active recording safely")
 		if _, err := captureManager.Stop(); err != nil {
 			log.Printf("stop recording: %v", err)

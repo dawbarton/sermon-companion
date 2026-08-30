@@ -81,8 +81,12 @@ func (m *Master) Export(id string) error {
 	fmt.Fprintf(logFile, "\n[%s] export started\n", started.Format(time.RFC3339))
 
 	files := make([]string, 0, len(segments))
+	recordingRate := session.Capture.SampleRate
+	if recordingRate <= 0 {
+		recordingRate = m.config.Capture.SampleRate
+	}
 	for i, segment := range segments {
-		measurement, output, err := m.normaliseSegment(input, workDir, i, segment, logFile)
+		measurement, output, err := m.normaliseSegment(input, workDir, i, segment, recordingRate, logFile)
 		if err != nil {
 			return m.fail(id, fmt.Errorf("normalise %q: %w", segment.Label, err))
 		}
@@ -99,7 +103,7 @@ func (m *Master) Export(id string) error {
 	}
 	outputName := outputName(session)
 	tempOutput := filepath.Join(workDir, "master.part.mp3")
-	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-b:a", m.config.Master.MP3Bitrate, "-ar", strconv.Itoa(m.config.Capture.SampleRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
+	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-b:a", m.config.Master.MP3Bitrate, "-ar", strconv.Itoa(recordingRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
 	if err := runLogged(m.config.FFmpeg, args, workDir, logFile); err != nil {
 		return m.fail(id, fmt.Errorf("create MP3: %w", err))
 	}
@@ -118,11 +122,14 @@ func (m *Master) Export(id string) error {
 	return err
 }
 
-func (m *Master) normaliseSegment(input, workDir string, index int, segment store.Segment, logFile *os.File) (measurement, string, error) {
-	duration := *segment.End - segment.Start
+func (m *Master) normaliseSegment(input, workDir string, index int, segment store.Segment, recordingRate int, logFile *os.File) (measurement, string, error) {
+	if segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
+		return measurement{}, "", errors.New("segment has invalid audio-frame boundaries")
+	}
 	target := targetFilter(m.config.Master)
-	common := []string{"-hide_banner", "-nostats", "-ss", seconds(segment.Start), "-t", seconds(duration), "-i", input}
-	analyseArgs := append(append([]string{}, common...), "-vn", "-af", target+":print_format=json", "-f", "null", "-")
+	common := []string{"-hide_banner", "-nostats", "-i", input}
+	trim := fmt.Sprintf("atrim=start_sample=%d:end_sample=%d,asetpts=PTS-STARTPTS,", segment.StartFrame, *segment.EndFrame)
+	analyseArgs := append(append([]string{}, common...), "-vn", "-af", trim+target+":print_format=json", "-f", "null", "-")
 	analysis, err := runCapture(m.config.FFmpeg, analyseArgs, "", logFile)
 	if err != nil {
 		return measurement{}, "", err
@@ -131,13 +138,13 @@ func (m *Master) normaliseSegment(input, workDir string, index int, segment stor
 	if err != nil {
 		return measurement{}, "", err
 	}
-	filter := target + ":measured_I=" + measured.InputI + ":measured_LRA=" + measured.InputLRA + ":measured_TP=" + measured.InputTP + ":measured_thresh=" + measured.InputThresh + ":offset=" + measured.TargetOffset + ":linear=true:print_format=summary"
+	filter := trim + target + ":measured_I=" + measured.InputI + ":measured_LRA=" + measured.InputLRA + ":measured_TP=" + measured.InputTP + ":measured_thresh=" + measured.InputThresh + ":offset=" + measured.TargetOffset + ":linear=true:print_format=summary"
 	// loudnorm upsamples internally to 192 kHz for true-peak detection. Resample
 	// explicitly inside the filter graph before handing frames to FLAC; relying
 	// on the output -ar option can leave an invalid encoder block size.
-	filter += ",aresample=" + strconv.Itoa(m.config.Capture.SampleRate) + ",aformat=sample_fmts=s16,asetnsamples=n=4096:p=0"
+	filter += ",aresample=" + strconv.Itoa(recordingRate) + ",aformat=sample_fmts=s16,asetnsamples=n=4096:p=0"
 	output := filepath.Join(workDir, fmt.Sprintf("segment-%03d.flac", index+1))
-	renderArgs := append(append([]string{}, common...), "-vn", "-af", filter, "-ar", strconv.Itoa(m.config.Capture.SampleRate), "-c:a", "flac", "-compression_level", "5", output)
+	renderArgs := append(append([]string{}, common...), "-vn", "-af", filter, "-ar", strconv.Itoa(recordingRate), "-c:a", "flac", "-compression_level", "5", output)
 	if err := runLogged(m.config.FFmpeg, renderArgs, "", logFile); err != nil {
 		return measurement{}, "", err
 	}
@@ -200,7 +207,7 @@ func runLogged(program string, args []string, dir string, logFile *os.File) erro
 func exportSegments(all []store.Segment) []store.Segment {
 	segments := make([]store.Segment, 0, len(all))
 	for _, segment := range all {
-		if !segment.Archived && segment.Include && segment.End != nil && *segment.End > segment.Start {
+		if !segment.Archived && segment.Include && segment.EndFrame != nil && *segment.EndFrame > segment.StartFrame {
 			segments = append(segments, segment)
 		}
 	}
@@ -215,8 +222,6 @@ func segmentIDs(segments []store.Segment) []string {
 	}
 	return ids
 }
-
-func seconds(value float64) string { return strconv.FormatFloat(value, 'f', 3, 64) }
 
 func outputName(session *store.Session) string {
 	church := filenamePart(session.Church)

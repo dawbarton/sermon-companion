@@ -96,12 +96,15 @@ func (s *Server) page(name string) http.HandlerFunc {
 }
 
 func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
-	id, elapsed, active := s.capture.Active()
+	id, position, captureInfo, active := s.capture.Active()
 	var session *store.Session
 	if active {
 		session, _ = s.store.Get(id)
+		if session != nil {
+			session.Capture = captureInfo
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": elapsed, "session": session, "presets": s.config.Presets})
+	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": position.Seconds, "framePosition": position.Frames, "capture": captureInfo, "session": session, "presets": s.config.Presets})
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
@@ -190,7 +193,7 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
-	id, _, active := s.capture.Active()
+	id, _, _, active := s.capture.Active()
 	if !active || id != r.PathValue("id") {
 		writeError(w, http.StatusConflict, errors.New("this session is not recording"))
 		return
@@ -204,7 +207,7 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
-	id, elapsed, active := s.capture.Active()
+	id, position, active := s.capture.MarkPosition(time.Now())
 	if !active || id != r.PathValue("id") {
 		writeError(w, http.StatusConflict, errors.New("segments can only be started during the active recording"))
 		return
@@ -225,9 +228,9 @@ func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
 		request.Label = request.Kind
 	}
 	now := time.Now().UTC()
-	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, Start: elapsed, Include: true, CreatedAt: now, UpdatedAt: now}
+	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, StartFrame: position.Frames, Start: position.Seconds, Include: true, CreatedAt: now, UpdatedAt: now}
 	session, err := s.store.Update(id, "segment.started", segment, func(session *store.Session) error {
-		closeOpenSegments(session, elapsed, now)
+		closeOpenSegments(session, position, now)
 		session.Segments = append(session.Segments, segment)
 		markExportStale(session)
 		return nil
@@ -264,9 +267,16 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		include = *request.Include
 	}
 	id := r.PathValue("id")
+	existing, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	rate := sessionSampleRate(existing, s.config.Capture.SampleRate)
 	now := time.Now().UTC()
 	end := request.End
-	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, Start: request.Start, End: &end, Include: include, CreatedAt: now, UpdatedAt: now}
+	startFrame, endFrame := secondsToFrame(request.Start, rate), secondsToFrame(request.End, rate)
+	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, StartFrame: startFrame, EndFrame: &endFrame, Start: request.Start, End: &end, Include: include, CreatedAt: now, UpdatedAt: now}
 	session, err := s.store.Update(id, "segment.added_manually", segment, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("use the OBS dock to mark segments while recording")
@@ -279,6 +289,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		session.Segments = append(session.Segments, segment)
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		syncSegmentFrames(session)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -293,13 +304,13 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stopSegment(w http.ResponseWriter, r *http.Request) {
-	id, elapsed, active := s.capture.Active()
+	id, position, active := s.capture.MarkPosition(time.Now())
 	if !active || id != r.PathValue("id") {
 		writeError(w, http.StatusConflict, errors.New("this session is not recording"))
 		return
 	}
 	segmentID := r.PathValue("segmentID")
-	session, err := s.store.Update(id, "segment.stopped", map[string]any{"segmentId": segmentID, "atSeconds": elapsed}, func(session *store.Session) error {
+	session, err := s.store.Update(id, "segment.stopped", map[string]any{"segmentId": segmentID, "position": position}, func(session *store.Session) error {
 		segment := findSegment(session, segmentID)
 		if segment == nil {
 			return errors.New("segment not found")
@@ -310,10 +321,10 @@ func (s *Server) stopSegment(w http.ResponseWriter, r *http.Request) {
 		if segment.End != nil {
 			return errors.New("segment is already closed")
 		}
-		if elapsed <= segment.Start {
+		if position.Frames <= segment.StartFrame {
 			return errors.New("segment end must be after its start")
 		}
-		segment.End, segment.UpdatedAt = floatPointer(elapsed), time.Now().UTC()
+		segment.EndFrame, segment.End, segment.UpdatedAt = uint64Pointer(position.Frames), floatPointer(position.Seconds), time.Now().UTC()
 		return nil
 	})
 	if err != nil {
@@ -360,9 +371,11 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if request.Start != nil {
 			segment.Start = *request.Start
+			segment.StartFrame = secondsToFrame(*request.Start, sessionSampleRate(session, s.config.Capture.SampleRate))
 		}
 		if request.End != nil {
 			segment.End = floatPointer(*request.End)
+			segment.EndFrame = uint64Pointer(secondsToFrame(*request.End, sessionSampleRate(session, s.config.Capture.SampleRate)))
 		}
 		if request.Include != nil {
 			segment.Include = *request.Include
@@ -374,6 +387,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		syncSegmentFrames(session)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -432,6 +446,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		syncSegmentFrames(session)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -455,14 +470,23 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	id, elapsed, active := s.capture.Active()
+	id, position, active := s.capture.MarkPosition(time.Now())
 	at := request.At
+	atFrame := uint64(0)
 	if at == nil {
 		if !active || id != r.PathValue("id") {
 			writeError(w, http.StatusBadRequest, errors.New("atSeconds is required for a finished session"))
 			return
 		}
-		at = &elapsed
+		at = &position.Seconds
+		atFrame = position.Frames
+	} else {
+		session, err := s.store.Get(r.PathValue("id"))
+		if err != nil {
+			writeError(w, http.StatusNotFound, errors.New("session not found"))
+			return
+		}
+		atFrame = secondsToFrame(*at, sessionSampleRate(session, s.config.Capture.SampleRate))
 	}
 	if *at < 0 {
 		writeError(w, http.StatusBadRequest, errors.New("marker time cannot be negative"))
@@ -474,7 +498,7 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(request.Kind) == "" {
 		request.Kind = kindFromLabel(request.Label)
 	}
-	marker := store.Marker{ID: store.NewObjectID("mark"), Kind: strings.TrimSpace(request.Kind), Label: strings.TrimSpace(request.Label), At: *at, CreatedAt: time.Now().UTC()}
+	marker := store.Marker{ID: store.NewObjectID("mark"), Kind: strings.TrimSpace(request.Kind), Label: strings.TrimSpace(request.Label), AtFrame: atFrame, At: *at, CreatedAt: time.Now().UTC()}
 	session, err := s.store.Update(r.PathValue("id"), "marker.added", marker, func(session *store.Session) error { session.Markers = append(session.Markers, marker); return nil })
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -588,10 +612,11 @@ func serveFile(w http.ResponseWriter, r *http.Request, path, contentType string,
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }
 
-func closeOpenSegments(session *store.Session, elapsed float64, now time.Time) {
-	for i := range session.Segments {
-		if session.Segments[i].End == nil && elapsed > session.Segments[i].Start {
-			session.Segments[i].End, session.Segments[i].UpdatedAt = floatPointer(elapsed), now
+func closeOpenSegments(session *store.Session, position capture.Position, now time.Time) {
+	for index := range session.Segments {
+		if session.Segments[index].End == nil && position.Frames > session.Segments[index].StartFrame {
+			session.Segments[index].EndFrame = uint64Pointer(position.Frames)
+			session.Segments[index].End, session.Segments[index].UpdatedAt = floatPointer(position.Seconds), now
 		}
 	}
 }
@@ -606,6 +631,37 @@ func findSegment(session *store.Session, id string) *store.Segment {
 }
 
 func floatPointer(v float64) *float64 { return &v }
+func uint64Pointer(v uint64) *uint64  { return &v }
+
+func sessionSampleRate(session *store.Session, fallback int) int {
+	if session != nil && session.Capture.SampleRate > 0 {
+		return session.Capture.SampleRate
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 48_000
+}
+
+func secondsToFrame(seconds float64, sampleRate int) uint64 {
+	if seconds <= 0 || sampleRate <= 0 {
+		return 0
+	}
+	return uint64(math.Round(seconds * float64(sampleRate)))
+}
+
+func syncSegmentFrames(session *store.Session) {
+	rate := sessionSampleRate(session, 48_000)
+	for index := range session.Segments {
+		segment := &session.Segments[index]
+		segment.StartFrame = secondsToFrame(segment.Start, rate)
+		if segment.End == nil {
+			segment.EndFrame = nil
+		} else {
+			segment.EndFrame = uint64Pointer(secondsToFrame(*segment.End, rate))
+		}
+	}
+}
 
 func markExportStale(session *store.Session) {
 	if session.Export != nil && session.Export.Status == "completed" {

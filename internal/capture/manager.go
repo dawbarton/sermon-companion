@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,45 +25,38 @@ type Manager struct {
 
 type running struct {
 	id       string
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	started  time.Time
-	done     chan error
+	capture  activeCapture
 	log      *os.File
 	partPath string
 	path     string
+	finished chan struct{}
 }
 
 func New(config config.Config, sessions *store.Store) *Manager {
 	return &Manager{config: config, store: sessions}
 }
 
-// RecoverInterrupted marks recordings left active by an application or power
-// failure as interrupted. The original partial FLAC is retained and any open
-// semantic segment is conservatively closed at the measured end of the audio.
 func (m *Manager) RecoverInterrupted() error {
 	sessions, err := m.store.List()
 	if err != nil {
 		return err
 	}
-	for i := range sessions {
-		session := &sessions[i]
+	for index := range sessions {
+		session := &sessions[index]
 		if session.Status == "recording" || session.Status == "starting" {
 			dir, _ := m.store.SessionDir(session.ID)
 			duration := session.Duration
 			if measured, probeErr := probeDuration(m.config.FFprobe, filepath.Join(dir, session.AudioFile)); probeErr == nil {
 				duration = measured
 			}
+			rate := sampleRate(session, m.config.Capture.SampleRate)
+			frames := uint64(duration*float64(rate) + 0.5)
 			ended := time.Now().UTC()
-			_, updateErr := m.store.Update(session.ID, "capture.recovered_after_interruption", map[string]any{"durationSeconds": duration}, func(s *store.Session) error {
+			_, updateErr := m.store.Update(session.ID, "capture.recovered_after_interruption", map[string]any{"durationSeconds": duration, "totalFrames": frames}, func(s *store.Session) error {
 				s.Status, s.EndedAt, s.Duration = "interrupted", &ended, duration
+				s.Capture.TotalFrames = frames
 				s.Error = "The application stopped before the recording was closed normally; the captured audio was retained."
-				for index := range s.Segments {
-					if s.Segments[index].End == nil && duration > s.Segments[index].Start {
-						s.Segments[index].End = &duration
-						s.Segments[index].UpdatedAt = ended
-					}
-				}
+				closeOpenSegments(s, Position{Frames: frames, Seconds: duration, Estimated: true}, ended)
 				return nil
 			})
 			if updateErr != nil {
@@ -96,132 +88,124 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 		return nil, err
 	}
 	dir, _ := m.store.SessionDir(session.ID)
-	inputArgs, err := InputArgs(m.config.Capture)
-	if err != nil {
-		_, _ = m.store.Update(session.ID, "capture.failed", map[string]any{"error": err.Error()}, func(s *store.Session) error { s.Status = "failed"; s.Error = err.Error(); return nil })
-		return nil, err
-	}
-	partPath := filepath.Join(dir, "audio.part.flac")
-	finalPath := filepath.Join(dir, "audio.flac")
-	args := []string{"-hide_banner", "-y"}
-	args = append(args, inputArgs...)
-	args = append(args, "-map", "0:a:0", "-vn", "-ac", strconv.Itoa(m.config.Capture.Channels), "-ar", strconv.Itoa(m.config.Capture.SampleRate), "-c:a", "flac", "-compression_level", "5", "-f", "flac", partPath)
-	cmd := exec.Command(m.config.FFmpeg, args...)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
+	partPath, finalPath := filepath.Join(dir, "audio.part.flac"), filepath.Join(dir, "audio.flac")
 	logFile, err := os.OpenFile(filepath.Join(dir, "capture.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdout, cmd.Stderr = logFile, logFile
-	if _, err := fmt.Fprintf(logFile, "\n[%s] starting capture: %s\n", time.Now().Format(time.RFC3339), printableCommand(m.config.FFmpeg, args)); err != nil {
-		logFile.Close()
-		return nil, err
+	var active activeCapture
+	if strings.EqualFold(m.config.Capture.Backend, "miniaudio") {
+		active, err = startMiniaudioCapture(m.config, partPath, logFile)
+	} else {
+		active, err = startFFmpegCapture(m.config, partPath, logFile)
 	}
-	if err := cmd.Start(); err != nil {
+	if err != nil {
 		logFile.Close()
 		_, _ = m.store.Update(session.ID, "capture.failed", map[string]any{"error": err.Error()}, func(s *store.Session) error { s.Status = "failed"; s.Error = err.Error(); return nil })
-		return nil, fmt.Errorf("start FFmpeg: %w", err)
-	}
-	r := &running{id: session.ID, cmd: cmd, stdin: stdin, started: time.Now(), done: make(chan error, 1), log: logFile, partPath: partPath, path: finalPath}
-	m.run = r
-	updated, err := m.store.Update(session.ID, "capture.started", map[string]any{"driver": m.config.Capture.Driver, "device": m.config.Capture.Device}, func(s *store.Session) error { s.Status = "recording"; return nil })
-	if err != nil {
-		_ = cmd.Process.Kill()
 		return nil, err
 	}
-	go m.wait(r)
+	run := &running{id: session.ID, capture: active, log: logFile, partPath: partPath, path: finalPath, finished: make(chan struct{})}
+	m.run = run
+	info := active.Info()
+	updated, err := m.store.Update(session.ID, "capture.started", info, func(s *store.Session) error {
+		s.Status, s.Capture = "recording", info
+		return nil
+	})
+	if err != nil {
+		active.Stop()
+		return nil, err
+	}
+	go m.wait(run)
 	return updated, nil
 }
 
-func (m *Manager) wait(r *running) {
-	err := r.cmd.Wait()
-	r.log.Close()
-
-	m.mu.Lock()
-	current := m.run == r
-	if current {
-		m.run = nil
-	}
-	m.mu.Unlock()
-	if !current {
-		return
-	}
-
+func (m *Manager) wait(run *running) {
+	result := <-run.capture.Done()
+	run.log.Close()
 	ended := time.Now().UTC()
-	status := "stopped"
-	errText := ""
-	if err != nil {
-		status, errText = "failed", err.Error()
+	status, errText := "stopped", ""
+	if result.Error != nil {
+		status, errText = "failed", result.Error.Error()
 	}
-	if _, statErr := os.Stat(r.partPath); statErr == nil {
-		if renameErr := os.Rename(r.partPath, r.path); renameErr == nil {
-			r.partPath = r.path
+	audioPath := result.PartPath
+	if result.Error == nil {
+		if err := os.Rename(result.PartPath, run.path); err != nil {
+			status, errText = "failed", fmt.Sprintf("publish recording: %v", err)
+		} else {
+			audioPath = run.path
 		}
 	}
-	duration := time.Since(r.started).Seconds()
-	if probed, probeErr := probeDuration(m.config.FFprobe, r.partPath); probeErr == nil {
-		duration = probed
+	duration := result.Info.AudioDuration
+	if duration == 0 && result.Info.SampleRate > 0 {
+		duration = float64(result.Info.TotalFrames) / float64(result.Info.SampleRate)
 	}
-	_, _ = m.store.Update(r.id, "capture.exited", map[string]any{"error": errText}, func(s *store.Session) error {
-		s.Status, s.Error, s.EndedAt = status, errText, &ended
-		s.Duration = duration
-		closeOpenSegments(s, duration, ended)
-		if filepath.Base(r.partPath) == "audio.flac" {
+	_, _ = m.store.Update(run.id, "capture.exited", map[string]any{"error": errText, "capture": result.Info}, func(s *store.Session) error {
+		s.Status, s.Error, s.EndedAt, s.Duration, s.Capture = status, errText, &ended, duration, result.Info
+		closeOpenSegments(s, Position{Frames: result.Info.TotalFrames, Seconds: duration}, ended)
+		if filepath.Base(audioPath) == "audio.flac" {
 			s.AudioFile = "audio.flac"
 		}
 		return nil
 	})
-	r.done <- err
-	close(r.done)
+	m.mu.Lock()
+	if m.run == run {
+		m.run = nil
+	}
+	m.mu.Unlock()
+	close(run.finished)
 }
 
 func (m *Manager) Stop() (*store.Session, error) {
 	m.mu.Lock()
-	r := m.run
-	if r == nil {
+	run := m.run
+	if run == nil {
 		m.mu.Unlock()
 		return nil, errors.New("no recording is in progress")
 	}
-	elapsed := time.Since(r.started).Seconds()
-	if _, err := m.store.Update(r.id, "segments.closed_on_stop", map[string]any{"atSeconds": elapsed}, func(s *store.Session) error {
-		closeOpenSegments(s, elapsed, time.Now().UTC())
+	position := run.capture.PositionAt(time.Now())
+	if _, err := m.store.Update(run.id, "segments.closed_on_stop", position, func(s *store.Session) error {
+		closeOpenSegments(s, position, time.Now().UTC())
 		return nil
 	}); err != nil {
 		m.mu.Unlock()
 		return nil, err
 	}
-	_, _ = io.WriteString(r.stdin, "q\n")
-	_ = r.stdin.Close()
+	run.capture.Stop()
 	m.mu.Unlock()
-
 	select {
-	case <-r.done:
-	case <-time.After(10 * time.Second):
-		_ = r.cmd.Process.Kill()
-		<-r.done
+	case <-run.finished:
+	case <-time.After(15 * time.Second):
+		return nil, errors.New("capture did not stop within fifteen seconds")
 	}
-	return m.store.Get(r.id)
+	return m.store.Get(run.id)
 }
 
-func closeOpenSegments(session *store.Session, elapsed float64, now time.Time) {
-	for i := range session.Segments {
-		if session.Segments[i].End == nil && elapsed > session.Segments[i].Start {
-			session.Segments[i].End = &elapsed
-			session.Segments[i].UpdatedAt = now
+func closeOpenSegments(session *store.Session, position Position, now time.Time) {
+	for index := range session.Segments {
+		if session.Segments[index].End == nil && position.Frames > session.Segments[index].StartFrame {
+			frames, seconds := position.Frames, position.Seconds
+			session.Segments[index].EndFrame, session.Segments[index].End = &frames, &seconds
+			session.Segments[index].UpdatedAt = now
 		}
 	}
 }
 
-func (m *Manager) Active() (id string, elapsed float64, ok bool) {
+func (m *Manager) Active() (id string, position Position, info store.CaptureInfo, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.run == nil {
-		return "", 0, false
+		return "", Position{}, store.CaptureInfo{}, false
 	}
-	return m.run.id, time.Since(m.run.started).Seconds(), true
+	return m.run.id, m.run.capture.Latest(), m.run.capture.Info(), true
+}
+
+func (m *Manager) MarkPosition(at time.Time) (id string, position Position, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.run == nil {
+		return "", Position{}, false
+	}
+	return m.run.id, m.run.capture.PositionAt(at), true
 }
 
 func printableCommand(program string, args []string) string {
@@ -237,11 +221,18 @@ func printableCommand(program string, args []string) string {
 }
 
 func probeDuration(program, path string) (float64, error) {
-	cmd := exec.Command(program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
+	command := exec.Command(program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
 	var output bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &output, &output
-	if err := cmd.Run(); err != nil {
+	command.Stdout, command.Stderr = &output, &output
+	if err := command.Run(); err != nil {
 		return 0, err
 	}
 	return strconv.ParseFloat(strings.TrimSpace(output.String()), 64)
+}
+
+func sampleRate(session *store.Session, fallback int) int {
+	if session.Capture.SampleRate > 0 {
+		return session.Capture.SampleRate
+	}
+	return fallback
 }

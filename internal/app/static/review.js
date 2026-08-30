@@ -80,7 +80,9 @@ function render() {
     elements["session-title"].value = current.title;
     elements.church.value = current.church || "Church";
   }
-  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}`;
+  const capture = current.capture || {};
+  const captureText = capture.sampleRate ? ` · ${capture.sampleRate/1000} kHz · ${capture.droppedFrames || 0} dropped frames` : "";
+  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}${captureText}`;
   const audioURL = `/api/sessions/${current.id}/audio`;
   if (!elements.audio.src.endsWith(audioURL)) elements.audio.src = audioURL;
   renderSegmentRows();

@@ -32,12 +32,14 @@ func TestTwoPassPerSegmentExport(t *testing.T) {
 		t.Fatalf("generate source: %v\n%s", err, output)
 	}
 	end2, end4 := 2.0, 4.0
+	endFrame2, endFrame4 := uint64(96_000), uint64(192_000)
 	now := time.Now().UTC()
 	_, err = sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
 		s.Status, s.AudioFile, s.Duration = "stopped", "audio.flac", 4
+		s.Capture = store.CaptureInfo{SampleRate: 48_000, Channels: 2, SampleFormat: "s16le", TotalFrames: 192_000}
 		s.Segments = []store.Segment{
-			{ID: "one", Kind: "reading", Label: "Reading", Start: 0, End: &end2, Include: true, CreatedAt: now, UpdatedAt: now},
-			{ID: "two", Kind: "sermon", Label: "Sermon", Start: 2, End: &end4, Include: true, CreatedAt: now, UpdatedAt: now},
+			{ID: "one", Kind: "reading", Label: "Reading", Start: 0, EndFrame: &endFrame2, End: &end2, Include: true, CreatedAt: now, UpdatedAt: now},
+			{ID: "two", Kind: "sermon", Label: "Sermon", StartFrame: 96_000, EndFrame: &endFrame4, Start: 2, End: &end4, Include: true, CreatedAt: now, UpdatedAt: now},
 		}
 		return nil
 	})

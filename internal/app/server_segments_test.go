@@ -39,6 +39,9 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 	if len(created.Segments) != 1 || created.Segments[0].Label != "Notices" || created.Segments[0].Kind != "notices" || !created.Segments[0].Include {
 		t.Fatalf("unexpected created segment: %#v", created.Segments)
 	}
+	if created.Segments[0].StartFrame != 1_440_000 || created.Segments[0].EndFrame == nil || *created.Segments[0].EndFrame != 2_160_000 {
+		t.Fatalf("manual segment was not mapped to audio frames: %#v", created.Segments[0])
+	}
 	if created.Export == nil || created.Export.Status != "stale" {
 		t.Fatalf("completed export was not invalidated: %#v", created.Export)
 	}

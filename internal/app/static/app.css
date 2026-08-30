@@ -40,6 +40,8 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .dock .preset small { display: block; margin-top: .15rem; color: var(--muted); font-weight: 400; }
 .dock .actions { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .8rem; }
 .dock .last { margin: .7rem 0 0; font-size: .86rem; color: var(--muted); }
+.dock .capture-health { margin: .35rem 0 0; font-size: .78rem; color: #7ee0b7; }
+.dock .capture-health.warning { color: #ff9b85; font-weight: 700; }
 
 /* Review application */
 .app-shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }

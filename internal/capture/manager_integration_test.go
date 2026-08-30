@@ -22,7 +22,7 @@ func TestSyntheticCaptureStartsAndStopsCleanly(t *testing.T) {
 	}
 	c := config.DefaultConfig()
 	c.FFmpeg, c.FFprobe = ffmpeg, ffprobe
-	c.Capture.Driver, c.Capture.Device = "lavfi", "sine=frequency=440:sample_rate=48000"
+	c.Capture.Backend, c.Capture.Driver, c.Capture.Device = "ffmpeg", "lavfi", "sine=frequency=440:sample_rate=48000"
 	sessions, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +50,9 @@ func TestSyntheticCaptureStartsAndStopsCleanly(t *testing.T) {
 	}
 	if len(stopped.Segments) != 1 || stopped.Segments[0].End == nil {
 		t.Fatalf("open segment was not closed: %#v", stopped.Segments)
+	}
+	if stopped.Segments[0].EndFrame == nil || *stopped.Segments[0].EndFrame == 0 {
+		t.Fatalf("segment was not closed on the audio-frame timeline: %#v", stopped.Segments[0])
 	}
 	dir, _ := sessions.SessionDir(session.ID)
 	if info, err := os.Stat(filepath.Join(dir, "audio.flac")); err != nil || info.Size() == 0 {

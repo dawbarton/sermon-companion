@@ -19,11 +19,15 @@ type Config struct {
 }
 
 type CaptureConfig struct {
+	Backend    string   `json:"backend"`
 	Driver     string   `json:"driver"`
+	DeviceID   string   `json:"deviceId,omitempty"`
 	Device     string   `json:"device"`
 	InputArgs  []string `json:"inputArgs,omitempty"`
 	SampleRate int      `json:"sampleRate"`
 	Channels   int      `json:"channels"`
+	PeriodMS   int      `json:"periodMilliseconds"`
+	BufferSecs int      `json:"bufferSeconds"`
 }
 
 type Preset struct {
@@ -50,7 +54,7 @@ func DefaultConfig() Config {
 		FFmpeg:  "ffmpeg",
 		FFprobe: "ffprobe",
 		Church:  "Church",
-		Capture: CaptureConfig{Driver: driver, Device: device, SampleRate: 48000, Channels: 2},
+		Capture: CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
 		Presets: []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
 		Master:  MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, MP3Bitrate: "128k"},
 	}
@@ -96,11 +100,20 @@ func applyConfigDefaults(c *Config, d Config) {
 	if c.Capture.Driver == "" {
 		c.Capture.Driver = d.Capture.Driver
 	}
+	if c.Capture.Backend == "" {
+		c.Capture.Backend = d.Capture.Backend
+	}
 	if c.Capture.SampleRate == 0 {
 		c.Capture.SampleRate = d.Capture.SampleRate
 	}
 	if c.Capture.Channels == 0 {
 		c.Capture.Channels = d.Capture.Channels
+	}
+	if c.Capture.PeriodMS == 0 {
+		c.Capture.PeriodMS = d.Capture.PeriodMS
+	}
+	if c.Capture.BufferSecs == 0 {
+		c.Capture.BufferSecs = d.Capture.BufferSecs
 	}
 	if len(c.Presets) == 0 {
 		c.Presets = d.Presets

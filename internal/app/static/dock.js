@@ -1,6 +1,6 @@
 "use strict";
 const {api, formatTime} = window.SC;
-const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "last", "error"].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "last", "capture-health", "error"].map(id => [id, document.getElementById(id)]));
 let status = {active: false, presets: []};
 
 function render() {
@@ -9,6 +9,10 @@ function render() {
   elements["status-dot"].classList.toggle("live", status.active);
   elements.timer.textContent = formatTime(status.elapsedSeconds || 0);
   if (!status.active) return;
+  const capture = status.capture || {};
+  const format = capture.sampleRate ? `${capture.sampleRate/1000} kHz · ${capture.channels} channel${capture.channels === 1 ? "" : "s"}` : "Preparing audio";
+  elements["capture-health"].textContent = capture.droppedFrames ? `Recording problem: ${capture.droppedFrames} audio frames were lost.` : `${format} · recording healthy`;
+  elements["capture-health"].classList.toggle("warning", !!capture.droppedFrames);
   const open = status.session?.segments?.find(segment => !segment.archived && segment.endSeconds == null);
   elements.presets.replaceChildren(...status.presets.map(preset => {
     const button = document.createElement("button");
