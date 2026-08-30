@@ -70,9 +70,10 @@ NORMAL OPERATION
    service title and church, then click "Save details". Each segment has its own
    Play and Stop button. For coarse adjustments, drag a segment or either of its
    edges on the waveform. Use Zoom and Pan, or enter exact start and end times,
-   for fine adjustments. Use Add segment for a missed interval, or Remove for an
-   unwanted one. Removed segments can be restored from the panel below the
-   table. Untick any part that should remain visible but not be exported.
+   for fine adjustments. Segments stop when they meet a neighbour and cannot
+   overlap. Use Add segment for a missed interval, or Remove for an unwanted one.
+   Removed segments can be restored from the panel below the table. Untick any
+   part that should remain visible but not be exported.
 7. Click "Create MP3". Each included part is measured and normalised separately
    before the parts are joined. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File

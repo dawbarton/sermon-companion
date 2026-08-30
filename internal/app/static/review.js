@@ -271,7 +271,8 @@ function segmentHandle(segment, edge) {
 function beginDrag(event, segment, mode) {
   if (segment.endSeconds == null) return;
   event.preventDefault(); event.stopPropagation();
-  dragState = {segmentID: segment.id, mode, pointerX: event.clientX, originalStart: segment.startSeconds, originalEnd: segment.endSeconds};
+  const neighbours = segmentNeighbours(segment);
+  dragState = {segmentID: segment.id, mode, pointerX: event.clientX, originalStart: segment.startSeconds, originalEnd: segment.endSeconds, minimumStart: neighbours.previous?.endSeconds ?? 0, maximumEnd: neighbours.next?.startSeconds ?? waveform.duration};
   window.addEventListener("pointermove", continueDrag);
   window.addEventListener("pointerup", finishDrag, {once: true});
   drawSegments();
@@ -284,15 +285,21 @@ function continueDrag(event) {
   const width = Math.max(1, elements["waveform-viewport"].getBoundingClientRect().width);
   const delta = (event.clientX-dragState.pointerX)/width*(waveform.viewEnd-waveform.viewStart);
   const minimum = .1;
-  if (dragState.mode === "start") segment.startSeconds = clamp(dragState.originalStart+delta, 0, dragState.originalEnd-minimum);
-  if (dragState.mode === "end") segment.endSeconds = clamp(dragState.originalEnd+delta, dragState.originalStart+minimum, waveform.duration);
+  if (dragState.mode === "start") segment.startSeconds = clamp(dragState.originalStart+delta, dragState.minimumStart, dragState.originalEnd-minimum);
+  if (dragState.mode === "end") segment.endSeconds = clamp(dragState.originalEnd+delta, dragState.originalStart+minimum, dragState.maximumEnd);
   if (dragState.mode === "move") {
     const length = dragState.originalEnd-dragState.originalStart;
-    const start = clamp(dragState.originalStart+delta, 0, waveform.duration-length);
+    const start = clamp(dragState.originalStart+delta, dragState.minimumStart, dragState.maximumEnd-length);
     segment.startSeconds = start; segment.endSeconds = start+length;
   }
   updateSegmentInputs(segment);
   drawSegments(); renderPlayhead();
+}
+
+function segmentNeighbours(segment) {
+  const ordered = activeSegments().filter(item => item.endSeconds != null).sort((a,b) => a.startSeconds-b.startSeconds);
+  const index = ordered.findIndex(item => item.id === segment.id);
+  return {previous: index > 0 ? ordered[index-1] : null, next: index >= 0 && index < ordered.length-1 ? ordered[index+1] : null};
 }
 
 async function finishDrag() {

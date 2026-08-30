@@ -24,6 +24,9 @@ validation on the church's Windows and HDMI-capture hardware.
   zoom and pan without loading the complete decoded recording into the browser;
   segment bodies and edges are draggable, every segment has bounded playback,
   and segments can be added, removed, or restored after the service.
+- Segment boundaries may touch but cannot overlap. Waveform drags stop at the
+  current neighbouring segments rather than jumping over or reordering them;
+  the same rule is enforced for typed times and exports.
 - FFmpeg is the only runtime dependency outside the single application binary.
   Its input adapter is selected in `config.json`: DirectShow on Windows,
   AVFoundation on macOS, or a custom argument list.

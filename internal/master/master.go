@@ -46,6 +46,9 @@ func (m *Master) Export(id string) error {
 	if strings.TrimSpace(session.Church) == "" {
 		session.Church = m.config.Church
 	}
+	if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+		return err
+	}
 	segments := exportSegments(session.Segments)
 	if len(segments) == 0 {
 		return errors.New("there are no complete, included segments to export")

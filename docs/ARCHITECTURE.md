@@ -118,6 +118,13 @@ the corresponding timestamp. A drag is written through the same audited
 `segment.adjusted` API as the text fields. Per-segment playback seeks to the
 start and pauses automatically at the end.
 
+Segments preserve their chronological order during waveform editing. A whole
+segment is confined to the free interval between its current neighbours, while
+each edge stops at the adjacent boundary. Touching endpoints are valid, but
+overlap is rejected by the API for additions, adjustments, and restoration, and
+is checked again before mastering. Segments do not jump across one another; an
+explicit reorder operation can be added later if a genuine use case emerges.
+
 Manual additions use the same generic model and appear immediately on the
 waveform. Removal is deliberately reversible: the current snapshot marks a
 segment as archived, while `events.jsonl` retains its complete prior value.

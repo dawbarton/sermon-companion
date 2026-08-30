@@ -22,7 +22,7 @@
             <button id="save-session" type="submit">Save details</button>
             <div id="session-meta" class="muted"></div>
           </form>
-          <div class="actions"><button id="open-folder">Open MP3 folder</button><a id="download" class="hidden"><button>Download MP3</button></a><button id="export" class="primary">Create MP3</button></div>
+          <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><a id="download" class="hidden"><button>Download MP3</button></a></div>
         </div>
         <audio id="audio" controls preload="metadata"></audio>
         <section class="waveform-card" aria-label="Recording waveform and segment editor">
@@ -42,7 +42,7 @@
             <div id="playhead" class="playhead hidden"></div>
             <div id="waveform-loading" class="waveform-loading">Generating waveform…</div>
           </div>
-          <p class="waveform-help">Click to seek. Drag a segment to move it, or drag either edge to trim it. Zoom in before making fine adjustments.</p>
+          <p class="waveform-help">Click to seek. Drag a segment to move it, or drag either edge to trim it. Segments stop at their neighbours and cannot cross. Zoom in before making fine adjustments.</p>
         </section>
         <p id="export-status" class="muted"></p>
         <p id="error" class="error"></p>

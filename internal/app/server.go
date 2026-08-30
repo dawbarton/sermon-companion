@@ -278,6 +278,10 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
 		session.Segments = append(session.Segments, segment)
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+			return err
+		}
 		markExportStale(session)
 		return nil
 	})
@@ -344,6 +348,9 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	beforeCopy := *before
 	session, err := s.store.Update(id, "segment.adjusted", map[string]any{"before": beforeCopy, "requested": request}, func(session *store.Session) error {
+		if session.Status == "recording" || session.Status == "starting" {
+			return errors.New("segments cannot be adjusted while recording")
+		}
 		segment := findSegment(session, segmentID)
 		if request.Kind != nil && strings.TrimSpace(*request.Kind) != "" {
 			segment.Kind = strings.TrimSpace(*request.Kind)
@@ -365,6 +372,10 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if session.Duration > 0 && *segment.End > session.Duration+1 {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
+		}
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+			return err
 		}
 		segment.UpdatedAt = time.Now().UTC()
 		markExportStale(session)
@@ -420,6 +431,10 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 			return errors.New("removed segment not found")
 		}
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
+		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+			return err
+		}
 		markExportStale(session)
 		return nil
 	})
@@ -470,6 +485,15 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	session, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	s.jobsMu.Lock()
 	if s.jobs[id] {
 		s.jobsMu.Unlock()

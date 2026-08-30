@@ -52,7 +52,8 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .session-card small { margin-top: .25rem; color: var(--muted); }
 .main { padding: 1.3rem; max-width: 1100px; width: 100%; margin: 0 auto; }
 .main-header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
-.main-header .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .55rem; }
+.main-header .actions { display: flex; flex-direction: column; align-items: stretch; min-width: 10.5rem; gap: .55rem; }
+.main-header .actions a, .main-header .actions a button { width: 100%; }
 .session-details { display: grid; grid-template-columns: minmax(15rem, 2fr) minmax(12rem, 1.4fr) auto; gap: .55rem; align-items: end; flex: 1; }
 .session-details label { color: var(--muted); font-size: .8rem; }
 .session-details label input { margin-top: .25rem; color: var(--text); }
@@ -105,7 +106,7 @@ audio { width: 100%; margin: 1rem 0; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
   .session-list { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .main-header { flex-direction: column; }
-  .main-header .actions { justify-content: flex-start; }
+  .main-header .actions { width: 100%; }
   .session-details { width: 100%; grid-template-columns: 1fr 1fr; }
   .session-details button { grid-column: 1 / -1; }
   .segment-table { display: block; overflow-x: auto; }

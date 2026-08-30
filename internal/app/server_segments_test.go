@@ -137,6 +137,53 @@ func TestManualSegmentValidatesRecordingBounds(t *testing.T) {
 	}
 }
 
+func TestSegmentAPIRejectsOverlapsAndAllowsTouchingBoundaries(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Overlap test", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error { s.Status, s.Duration = "stopped", 100; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"First","startSeconds":10,"endSeconds":20}`)
+	second := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Second","startSeconds":30,"endSeconds":40}`)
+	secondID := second.Segments[1].ID
+
+	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Overlap","startSeconds":15,"endSeconds":25}`, http.StatusBadRequest, "overlaps")
+	requestError(t, handler, http.MethodPatch, "/api/sessions/"+session.ID+"/segments/"+secondID, `{"startSeconds":19,"endSeconds":40}`, http.StatusBadRequest, "overlaps")
+	touching := requestSession(t, handler, http.MethodPatch, "/api/sessions/"+session.ID+"/segments/"+secondID, `{"startSeconds":20,"endSeconds":40}`)
+	if touching.Segments[1].Start != 20 {
+		t.Fatalf("touching boundary was not accepted: %#v", touching.Segments)
+	}
+
+	_, err = sessions.Update(session.ID, "test.force_overlap", nil, func(s *store.Session) error {
+		s.Segments[1].Start = 19
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/export", `{}`, http.StatusBadRequest, "overlaps")
+}
+
+func requestError(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, wantText string) {
+	t.Helper()
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != wantStatus || !strings.Contains(response.Body.String(), wantText) {
+		t.Fatalf("%s %s: status=%d, body=%s", method, path, response.Code, response.Body.String())
+	}
+}
+
 func requestSession(t *testing.T, handler http.Handler, method, path, body string) store.Session {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
