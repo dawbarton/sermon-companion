@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -64,18 +63,29 @@ func main() {
 	if err := captureManager.RecoverInterrupted(); err != nil {
 		log.Printf("recover interrupted recordings: %v", err)
 	}
+	if removed, err := captureManager.ApplyRetention(time.Now()); err != nil {
+		log.Printf("apply recording retention: %v", err)
+	} else if removed > 0 {
+		days, _ := c.KeepRecordingsFor()
+		log.Printf("removed the source recording of %d service(s) older than %d days; their MP3s and details were kept", removed, days)
+	}
 	mastering := master.New(c, sessions)
 	server := app.NewServer(c, sessions, captureManager, mastering, app.StaticFiles)
 	httpServer := &http.Server{Addr: c.Listen, Handler: server.Handler(), ReadHeaderTimeout: 5 * time.Second}
 
+	reviewURL := app.LocalURL(c.Listen)
 	go func() {
-		log.Printf("Sermon Companion is ready at http://%s/ (OBS dock: http://%s/dock)", c.Listen, c.Listen)
+		log.Printf("Sermon Companion is ready at %s (OBS dock: %sdock)", reviewURL, reviewURL)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
 	if !*noOpen {
-		go openBrowser("http://" + c.Listen + "/")
+		go func() {
+			if err := app.OpenInBrowser(reviewURL); err != nil {
+				fmt.Fprintf(os.Stderr, "Open %s in a browser.\n", reviewURL)
+			}
+		}()
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -96,21 +106,6 @@ func defaultDataDir() string {
 		return "sermon-companion-data"
 	}
 	return filepath.Join(dir, "Sermon Companion")
-}
-
-func openBrowser(url string) {
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		command = exec.Command("open", url)
-	default:
-		command = exec.Command("xdg-open", url)
-	}
-	if err := command.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Open %s in a browser.\n", url)
-	}
 }
 
 func resolveBundledFFmpeg(c *config.Config) {

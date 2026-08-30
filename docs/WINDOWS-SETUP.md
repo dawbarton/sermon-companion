@@ -75,7 +75,8 @@ NORMAL OPERATION
    ends it without starting another.
 4. "Add marker" records a general note position without changing a segment.
 5. At the end of the service, click "Stop service".
-6. Open http://127.0.0.1:8765/ in a browser. Check and, if necessary, edit the
+6. Click "Open review page" in the dock, or open http://127.0.0.1:8765/ in a
+   browser. Check and, if necessary, edit the
    service title and church, then click "Save details". Each segment has its own
    Play and Stop button. For coarse adjustments, drag a segment or either of its
    edges on the waveform. Use Zoom and Pan, or enter exact start and end times,
@@ -91,6 +92,12 @@ NORMAL OPERATION
 The complete FLAC remains available if an operator makes a mistake. Creating a
 new MP3 never changes it. Recreating an MP3 keeps the requested simple filename;
 the previous version is retained under `exports\previous`.
+
+Lossless recordings are large. When it starts, the application deletes the
+recording of any service older than the `retentionDays` setting, 60 days by
+default, and keeps the service details and every MP3 already created. Copy an
+MP3 somewhere safe if it matters, and set `retentionDays` to 0 to keep every
+recording indefinitely.
 
 If the dock displays a recording problem or any dropped frames, retain the
 partial recording but do not assume it is complete. Give `capture.log` and the

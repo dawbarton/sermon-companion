@@ -1,7 +1,16 @@
 "use strict";
 const {api, formatTime} = window.SC;
-const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "last", "capture-health", "error"].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "last", "capture-health", "open-review", "error"].map(id => [id, document.getElementById(id)]));
 let status = {active: false, presets: []};
+// A failed action, such as starting a recording against a missing microphone,
+// stays on screen until the operator tries something else. The status poll
+// runs every second and must not wipe it.
+let actionError = "";
+let pollError = "";
+
+function showError(error) { actionError = error instanceof Error ? error.message : error; renderError(); }
+function clearError() { actionError = ""; renderError(); }
+function renderError() { elements.error.textContent = actionError || pollError; }
 
 function render() {
   elements["start-panel"].classList.toggle("hidden", status.active);
@@ -29,45 +38,56 @@ function render() {
 }
 
 async function refresh() {
-  try { status = await api("/api/status"); elements.error.textContent = ""; render(); }
-  catch (error) { elements.error.textContent = error.message; }
+  try { status = await api("/api/status"); pollError = ""; renderError(); render(); }
+  catch (error) { pollError = error.message; renderError(); }
 }
 
 elements.start.addEventListener("click", async () => {
   elements.start.disabled = true;
+  clearError();
   try { await api("/api/sessions", {method: "POST", body: JSON.stringify({title: elements.title.value})}); await refresh(); }
-  catch (error) { elements.error.textContent = error.message; }
+  catch (error) { showError(error); }
   finally { elements.start.disabled = false; }
+});
+
+elements["open-review"].addEventListener("click", async () => {
+  clearError();
+  try { await api("/api/open-review-page", {method: "POST", body: "{}"}); }
+  catch (error) { showError(error); }
 });
 
 async function startSegment(preset) {
   try {
+    clearError();
     status.session = await api(`/api/sessions/${status.session.id}/segments`, {method: "POST", body: JSON.stringify(preset)});
     elements.last.textContent = `${preset.label} started. The complete audio is still being kept.`;
     render();
-  } catch (error) { elements.error.textContent = error.message; }
+  } catch (error) { showError(error); }
 }
 
 async function stopSegment(id) {
   try {
+    clearError();
     status.session = await api(`/api/sessions/${status.session.id}/segments/${id}/stop`, {method: "POST", body: "{}"});
     elements.last.textContent = "Segment ended. The complete audio is still being kept.";
     render();
-  } catch (error) { elements.error.textContent = error.message; }
+  } catch (error) { showError(error); }
 }
 
 elements.marker.addEventListener("click", async () => {
   try {
+    clearError();
     status.session = await api(`/api/sessions/${status.session.id}/markers`, {method: "POST", body: JSON.stringify({kind: "note", label: "Operator marker"})});
     elements.last.textContent = `Marker added at ${formatTime(status.elapsedSeconds, true)}.`;
-  } catch (error) { elements.error.textContent = error.message; }
+  } catch (error) { showError(error); }
 });
 
 elements.stop.addEventListener("click", async () => {
   if (!confirm("Stop the continuous recording? You can adjust all markers afterwards.")) return;
   elements.stop.disabled = true;
+  clearError();
   try { await api(`/api/sessions/${status.session.id}/stop`, {method: "POST", body: "{}"}); await refresh(); }
-  catch (error) { elements.error.textContent = error.message; }
+  catch (error) { showError(error); }
   finally { elements.stop.disabled = false; }
 });
 

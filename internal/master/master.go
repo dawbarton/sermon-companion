@@ -43,6 +43,9 @@ func (m *Master) Export(id string) error {
 	if session.Status == "recording" || session.Status == "starting" {
 		return errors.New("stop the recording before exporting")
 	}
+	if session.AudioRemovedAt != nil {
+		return errors.New("the lossless recording was removed after the retention period, so the MP3 cannot be created again")
+	}
 	if strings.TrimSpace(session.Church) == "" {
 		session.Church = m.config.Church
 	}
@@ -107,7 +110,7 @@ func (m *Master) Export(id string) error {
 	}
 	outputName := outputName(session)
 	tempOutput := filepath.Join(workDir, "master.part.mp3")
-	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-b:a", m.config.Master.MP3Bitrate, "-ar", strconv.Itoa(recordingRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
+	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-q:a", strconv.Itoa(m.config.Master.MP3QualityLevel()), "-ar", strconv.Itoa(recordingRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
 	if err := runLogged(m.config.FFmpeg, args, workDir, logFile); err != nil {
 		return m.fail(id, fmt.Errorf("create MP3: %w", err))
 	}

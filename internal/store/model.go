@@ -20,6 +20,9 @@ type Session struct {
 	Markers       []Marker    `json:"markers"`
 	Export        *ExportInfo `json:"export,omitempty"`
 	Error         string      `json:"error,omitempty"`
+	// AudioRemovedAt records when the lossless recording was deleted under the
+	// retention policy. The session history and its exports are kept.
+	AudioRemovedAt *time.Time `json:"audioRemovedAt,omitempty"`
 }
 
 type CaptureInfo struct {

@@ -42,6 +42,9 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .dock .last { margin: .7rem 0 0; font-size: .86rem; color: var(--muted); }
 .dock .capture-health { margin: .35rem 0 0; font-size: .78rem; color: #7ee0b7; }
 .dock .capture-health.warning { color: #ff9b85; font-weight: 700; }
+.dock .dock-footer { margin-top: .8rem; }
+.dock .dock-footer button { width: 100%; }
+.dock .error { margin: .7rem 0 0; }
 
 /* Review application */
 .app-shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }

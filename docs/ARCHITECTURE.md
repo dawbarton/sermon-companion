@@ -114,6 +114,14 @@ change. Exports are first written under a private work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
 
+A lossless recording is roughly 500 MB for a service, so the application applies
+a retention period at start-up: the source recording and its cached waveform are
+deleted once a service is older than `retentionDays`, defaulting to 60. The
+snapshot, the journal, and every published MP3 are kept, the removal is itself
+journalled, and `audioRemovedAt` on the session tells the review page to explain
+why there is no waveform and why no new MP3 can be made. Setting `retentionDays`
+to zero keeps every recording indefinitely.
+
 The current MP3 name is deterministic from the local service date and a
 filesystem-safe, space-free form of the session's church. Re-exporting first
 moves the preceding file into `exports/previous`, then atomically publishes the
@@ -127,7 +135,9 @@ its exact start and end sample before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
 normalised FLAC. These homogeneous files are concatenated and encoded once with
-LAME. The defaults are `-16 LUFS`, `11 LU`, `-1.5 dBTP`, and 128 kbit/s MP3.
+LAME. The defaults are `-16 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
+bitrate at quality 5. A service is speech with pauses, so a variable bitrate
+spends far less than a constant 128 kbit/s on it without sounding worse.
 
 There is deliberately no crossfade: the exported boundary should match the
 operator's reviewed times. A future UI may offer short, explicit fades to avoid
@@ -166,7 +176,36 @@ file as current.
 
 The UI uses a small JSON API beneath `/api`. It supports session start and stop,
 generic segment start, stop, and adjustment, point markers, session history,
-lossless playback, waveform-envelope generation, and asynchronous export. The server listens on loopback by
+lossless playback, waveform-envelope generation, and asynchronous export. It can
+also ask the operating system to open the MP3 folder or the review page, because
+the dock runs inside OBS's embedded browser where an ordinary link would open in
+the dock panel itself. The server listens on loopback by
 default and sets a restrictive content-security policy. It has no cloud or OBS
 WebSocket dependency. Live status includes the audio-frame position and capture
 health statistics.
+
+## Repository map
+
+```text
+cmd/sermon-companion/   application entry point
+internal/app/           local HTTP API and embedded browser UI
+internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback
+internal/config/        configuration defaults and create-on-first-run behaviour
+internal/master/        per-segment two-pass loudness normalisation and MP3
+internal/store/         versioned session model and append-only event journal
+internal/waveform/      cached compact peak envelope
+docs/                   deployment and architecture notes
+scripts/                Windows packaging and launch helpers
+```
+
+## Validation boundary
+
+The buffering, recovery, editing, retention, and mastering paths have automated
+tests. The native capture path additionally needs a normal host process with
+audio permission, which a sandbox cannot provide. Before routine use, confirm on
+the church Windows computer: the exact miniaudio HDMI device identifier, access
+by OBS and Sermon Companion at the same time, the channel layout, and one
+complete service-length recording. Some drivers allow only one application to
+open a device. If the HDMI device turns out to be exclusive, the intended
+fallback is a thin OBS raw-mix adapter feeding the same PCM recorder and sample
+clock, rather than a second device capture.

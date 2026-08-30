@@ -77,6 +77,67 @@ func (m *Manager) RecoverInterrupted() error {
 	return nil
 }
 
+// ApplyRetention deletes the lossless recording of services that finished
+// longer ago than the configured retention period. Session history, the event
+// journal, and any published MP3 are kept: only the large source file and its
+// cached waveform go, and the removal is recorded in the journal.
+func (m *Manager) ApplyRetention(now time.Time) (int, error) {
+	days, limited := m.config.KeepRecordingsFor()
+	if !limited {
+		return 0, nil
+	}
+	sessions, err := m.store.List()
+	if err != nil {
+		return 0, err
+	}
+	cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
+	removed := 0
+	for index := range sessions {
+		session := &sessions[index]
+		if session.AudioRemovedAt != nil || session.Status == "recording" || session.Status == "starting" {
+			continue
+		}
+		finished := session.StartedAt
+		if session.EndedAt != nil {
+			finished = *session.EndedAt
+		}
+		if !finished.Before(cutoff) {
+			continue
+		}
+		if err := m.removeRecording(session, now); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+func (m *Manager) removeRecording(session *store.Session, now time.Time) error {
+	path, err := m.store.SessionFile(session.ID, session.AudioFile)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove recording %s: %w", session.ID, err)
+	}
+	dir, err := m.store.SessionDir(session.ID)
+	if err != nil {
+		return err
+	}
+	cached, _ := filepath.Glob(filepath.Join(dir, "waveform-*.json"))
+	for _, name := range cached {
+		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove cached waveform %s: %w", session.ID, err)
+		}
+	}
+	removedAt := now.UTC()
+	_, err = m.store.Update(session.ID, "capture.recording_removed", map[string]any{"audioFile": session.AudioFile, "retentionDays": *m.config.RetentionDays}, func(s *store.Session) error {
+		s.AudioRemovedAt = &removedAt
+		return nil
+	})
+	return err
+}
+
 func (m *Manager) Start(title string) (*store.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

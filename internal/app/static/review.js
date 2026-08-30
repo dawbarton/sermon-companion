@@ -44,19 +44,31 @@ async function selectSession(id) {
     current = await api(`/api/sessions/${id}`);
     waveform = emptyWaveform();
     render();
-    if (!isRecording(current)) void loadWaveform(id);
+    if (!isRecording(current) && hasRecording(current)) void loadWaveform(id);
+    else if (!hasRecording(current)) showWaveformNotice(recordingRemovedNote(current));
     await loadSessions();
   } catch (error) { showError(error); }
 }
 
 function isRecording(session) { return session?.status === "recording" || session?.status === "starting"; }
 
+function hasRecording(session) { return !!session && !session.audioRemovedAt; }
+
+function recordingRemovedNote(session) {
+  return `The lossless recording was removed on ${new Date(session.audioRemovedAt).toLocaleDateString()} to save space. The service details and any MP3 already created are kept.`;
+}
+
+function showWaveformNotice(message) {
+  elements["waveform-loading"].textContent = message;
+  elements["waveform-loading"].classList.remove("hidden");
+}
+
 // The recording grows under a fixed path, so the finished file is a different
 // resource at the same URL. Keying the source on the published duration makes
 // the player reload the complete recording instead of keeping the partial one
 // it fetched while the service was still being recorded.
 function audioSourceFor(session) {
-  if (!session || isRecording(session)) return null;
+  if (!session || isRecording(session) || !hasRecording(session)) return null;
   return `/api/sessions/${session.id}/audio?duration=${session.durationSeconds || 0}`;
 }
 
@@ -94,7 +106,8 @@ function render() {
   }
   const capture = current.capture || {};
   const captureText = capture.sampleRate ? ` · ${capture.sampleRate/1000} kHz · ${capture.droppedFrames || 0} dropped frames` : "";
-  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}${captureText}`;
+  const removedText = hasRecording(current) ? "" : " · recording removed";
+  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}${captureText}${removedText}`;
   const wanted = audioSourceFor(current);
   if (wanted !== audioSource) {
     audioSource = wanted;
@@ -103,12 +116,13 @@ function render() {
     else elements.audio.removeAttribute("src");
     elements.audio.load();
   }
+  elements.audio.classList.toggle("hidden", !wanted);
   renderSegmentRows();
   elements.markers.replaceChildren(...[...current.markers].sort((a,b) => a.atSeconds-b.atSeconds).map(markerRow));
   renderWaveform();
   const exp = current.export;
   elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
-  elements.export.disabled = current.status === "recording" || exp?.status === "running";
+  elements.export.disabled = isRecording(current) || !hasRecording(current) || exp?.status === "running";
   elements["save-session"].disabled = exp?.status === "running";
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
@@ -130,7 +144,7 @@ function segmentRow(segment) {
   const play = document.createElement("button");
   play.className = "segment-play";
   play.textContent = playingSegmentID === segment.id ? "Stop" : "Play";
-  play.disabled = segment.endSeconds == null;
+  play.disabled = segment.endSeconds == null || !hasRecording(current);
   play.addEventListener("click", () => toggleSegmentPlayback(segment));
   const include = document.createElement("input"); include.type = "checkbox"; include.checked = segment.include;
   const label = document.createElement("input"); label.value = segment.label;
@@ -207,8 +221,19 @@ function markerRow(marker) {
   row.append(time, label); return row;
 }
 
+const waveformControls = ["zoom-in", "zoom-out", "zoom-full", "pan-left", "pan-right"];
+
 function renderWaveform() {
   if (!current || !elements["waveform-viewport"]) return;
+  if (!hasRecording(current)) {
+    showWaveformNotice(recordingRemovedNote(current));
+    elements["waveform-range"].textContent = "";
+    elements["segment-overlay"].replaceChildren();
+    elements.playhead.classList.add("hidden");
+    for (const control of waveformControls) elements[control].disabled = true;
+    drawWaveform();
+    return;
+  }
   const loading = waveform.loading || !waveform.peaks;
   elements["waveform-loading"].classList.toggle("hidden", !loading);
   if (waveform.loading) elements["waveform-loading"].textContent = "Generating waveform…";
@@ -219,6 +244,7 @@ function renderWaveform() {
   drawSegments();
   renderPlayhead();
   const full = waveform.viewStart <= 0.001 && waveform.viewEnd >= duration - 0.001;
+  elements["zoom-in"].disabled = false;
   elements["zoom-out"].disabled = full;
   elements["zoom-full"].disabled = full;
   elements["pan-left"].disabled = waveform.viewStart <= 0;
@@ -487,6 +513,6 @@ setInterval(async () => {
   try {
     current = await api(`/api/sessions/${current.id}`);
     render();
-    if (wasRecording && !isRecording(current)) { void loadWaveform(current.id); void loadSessions(); }
+    if (wasRecording && !isRecording(current) && hasRecording(current)) { void loadWaveform(current.id); void loadSessions(); }
   } catch (_) {}
 }, 1500);

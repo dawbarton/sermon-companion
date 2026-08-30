@@ -16,6 +16,10 @@ type Config struct {
 	Capture CaptureConfig   `json:"capture"`
 	Presets []Preset        `json:"presets"`
 	Master  MasteringConfig `json:"mastering"`
+	// RetentionDays is how long a lossless recording is kept after the service.
+	// Zero or a negative value keeps every recording indefinitely. Pointers
+	// distinguish an omitted setting from a deliberate zero.
+	RetentionDays *int `json:"retentionDays"`
 }
 
 type CaptureConfig struct {
@@ -39,7 +43,9 @@ type MasteringConfig struct {
 	IntegratedLUFS float64 `json:"integratedLUFS"`
 	LoudnessRange  float64 `json:"loudnessRangeLU"`
 	TruePeakDB     float64 `json:"truePeakDB"`
-	MP3Bitrate     string  `json:"mp3Bitrate"`
+	// MP3Quality is the LAME variable-bitrate level, 0 for the largest files
+	// and 9 for the smallest. Speech needs far less than a constant 128 kbit/s.
+	MP3Quality *int `json:"mp3Quality"`
 }
 
 func DefaultConfig() Config {
@@ -50,14 +56,34 @@ func DefaultConfig() Config {
 		device = "CHANGE ME: HDMI capture audio device"
 	}
 	return Config{
-		Listen:  "127.0.0.1:8765",
-		FFmpeg:  "ffmpeg",
-		FFprobe: "ffprobe",
-		Church:  "Church",
-		Capture: CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
-		Presets: []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
-		Master:  MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, MP3Bitrate: "128k"},
+		Listen:        "127.0.0.1:8765",
+		FFmpeg:        "ffmpeg",
+		FFprobe:       "ffprobe",
+		Church:        "Church",
+		Capture:       CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
+		Presets:       []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
+		Master:        MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, MP3Quality: intPointer(5)},
+		RetentionDays: intPointer(60),
 	}
+}
+
+func intPointer(v int) *int { return &v }
+
+// KeepRecordingsFor reports how long a lossless recording is kept, and whether
+// any retention limit applies at all.
+func (c Config) KeepRecordingsFor() (int, bool) {
+	if c.RetentionDays == nil || *c.RetentionDays <= 0 {
+		return 0, false
+	}
+	return *c.RetentionDays, true
+}
+
+// MP3QualityLevel is the LAME variable-bitrate level to encode with.
+func (c MasteringConfig) MP3QualityLevel() int {
+	if c.MP3Quality == nil {
+		return 5
+	}
+	return min(9, max(0, *c.MP3Quality))
 }
 
 func LoadOrCreateConfig(path string) (Config, error) {
@@ -127,7 +153,10 @@ func applyConfigDefaults(c *Config, d Config) {
 	if c.Master.TruePeakDB == 0 {
 		c.Master.TruePeakDB = d.Master.TruePeakDB
 	}
-	if c.Master.MP3Bitrate == "" {
-		c.Master.MP3Bitrate = d.Master.MP3Bitrate
+	if c.Master.MP3Quality == nil {
+		c.Master.MP3Quality = d.Master.MP3Quality
+	}
+	if c.RetentionDays == nil {
+		c.RetentionDays = d.RetentionDays
 	}
 }

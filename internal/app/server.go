@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -33,12 +34,13 @@ type Server struct {
 	waveform   *waveform.Generator
 	static     fs.FS
 	openFolder func(string) error
+	openLink   func(string) error
 	jobsMu     sync.Mutex
 	jobs       map[string]bool
 }
 
 func NewServer(c config.Config, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
-	return &Server{config: c, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(c.FFmpeg, sessions), static: static, openFolder: openFolder, jobs: map[string]bool{}}
+	return &Server{config: c, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(c.FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -61,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/waveform", s.waveformEnvelope)
 	mux.HandleFunc("GET /api/sessions/{id}/export-file", s.exportFile)
 	mux.HandleFunc("POST /api/sessions/{id}/open-export-folder", s.openExportFolder)
+	mux.HandleFunc("POST /api/open-review-page", s.openReviewPage)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.events)
 	assets, _ := fs.Sub(s.static, "static")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
@@ -598,6 +601,17 @@ func (s *Server) openExportFolder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "opened"})
 }
 
+// openReviewPage exists because the dock runs inside OBS's embedded browser,
+// where an ordinary link would open in the dock panel itself.
+func (s *Server) openReviewPage(w http.ResponseWriter, _ *http.Request) {
+	url := LocalURL(s.config.Listen)
+	if err := s.openLink(url); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("open the review page: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "opened", "url": url})
+}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	events, err := s.store.Events(r.PathValue("id"))
 	if err != nil {
@@ -716,6 +730,37 @@ func openFolder(path string) error {
 	default:
 		command = exec.Command("xdg-open", path)
 	}
+	return start(command)
+}
+
+// OpenInBrowser opens a local page in the operator's default web browser.
+func OpenInBrowser(url string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		command = exec.Command("open", url)
+	default:
+		command = exec.Command("xdg-open", url)
+	}
+	return start(command)
+}
+
+// LocalURL turns a listen address into a page address an operator can open,
+// substituting the loopback host for a wildcard or omitted one.
+func LocalURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen + "/"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/"
+}
+
+func start(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
