@@ -29,17 +29,9 @@ function render() {
     const button = document.createElement("button");
     const isOpen = open?.kind === preset.kind;
     button.className = `preset${isOpen ? " active" : ""}`;
-    const label = document.createElement("span");
-    label.textContent = isOpen ? `End ${preset.label}` : `Start ${preset.label}`;
-    // A second line appears only when it says something the label does not, so
-    // idle buttons stay one line high.
-    const note = isOpen ? `Started at ${formatTime(open.startSeconds, true)}` : open ? `This will end ${open.label}` : "";
-    button.append(label);
-    if (note) {
-      const detail = document.createElement("small");
-      detail.textContent = note;
-      button.append(detail);
-    }
+    // One line per button, and nothing under it: the dock shares a narrow OBS
+    // panel with other docks, and the label already says what pressing it does.
+    button.textContent = isOpen ? `End ${preset.label}` : `Start ${preset.label}`;
     button.addEventListener("click", () => isOpen ? stopSegment(open.id) : startSegment(preset));
     return button;
   }));

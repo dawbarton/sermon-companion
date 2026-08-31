@@ -37,7 +37,6 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .dock .start-panel { display: grid; gap: .6rem; }
 .dock .preset-grid { display: grid; gap: .55rem; }
 .dock .preset { text-align: left; font-weight: 650; border-left: .35rem solid var(--accent); }
-.dock .preset small { display: block; margin-top: .15rem; color: var(--muted); font-weight: 400; }
 .dock .actions { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .8rem; }
 .dock .capture-health { margin: .7rem 0 0; font-size: .82rem; font-weight: 700; color: #ff9b85; }
 .dock .dock-footer { margin-top: .8rem; }
