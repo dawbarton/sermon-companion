@@ -53,6 +53,12 @@ type MasteringConfig struct {
 	// unless a service overrides it. It applies to the export alone; the
 	// recording and the reviewed times are untouched.
 	GapSeconds *float64 `json:"gapSeconds"`
+	// Mono downmixes the export to a single channel before the loudness is
+	// measured. A service is one speaker through one mix, so both captured
+	// channels carry the same audio, and a single channel is what the -19 LUFS
+	// spoken-word target assumes. A pointer distinguishes an omitted setting
+	// from a deliberate false.
+	Mono *bool `json:"mono"`
 	// MP3Quality is the LAME variable-bitrate level, 0 for the largest files
 	// and 9 for the smallest. Speech needs far less than a constant 128 kbit/s.
 	MP3Quality *int `json:"mp3Quality"`
@@ -72,7 +78,7 @@ func DefaultConfig() Config {
 		Church:        "Church",
 		Capture:       CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
 		Presets:       []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
-		Master:        MasteringConfig{IntegratedLUFS: -19, LoudnessRange: 11, TruePeakDB: -1.5, PeakLimitDB: floatPointer(-1), GapSeconds: floatPointer(2), MP3Quality: intPointer(5)},
+		Master:        MasteringConfig{IntegratedLUFS: -19, LoudnessRange: 11, TruePeakDB: -1.5, PeakLimitDB: floatPointer(-1), GapSeconds: floatPointer(2), Mono: boolPointer(true), MP3Quality: intPointer(5)},
 		RetentionDays: intPointer(60),
 	}
 }
@@ -80,6 +86,8 @@ func DefaultConfig() Config {
 func intPointer(v int) *int { return &v }
 
 func floatPointer(v float64) *float64 { return &v }
+
+func boolPointer(v bool) *bool { return &v }
 
 // KeepRecordingsFor reports how long a lossless recording is kept, and whether
 // any retention limit applies at all.
@@ -116,6 +124,9 @@ const MaximumGapSeconds = 30.0
 func ClampGapSeconds(seconds float64) float64 {
 	return min(MaximumGapSeconds, max(0, seconds))
 }
+
+// MonoDownmix reports whether the export is reduced to a single channel.
+func (c MasteringConfig) MonoDownmix() bool { return c.Mono == nil || *c.Mono }
 
 // MP3QualityLevel is the LAME variable-bitrate level to encode with.
 func (c MasteringConfig) MP3QualityLevel() int {
@@ -197,6 +208,9 @@ func applyConfigDefaults(c *Config, d Config) {
 	}
 	if c.Master.GapSeconds == nil {
 		c.Master.GapSeconds = d.Master.GapSeconds
+	}
+	if c.Master.Mono == nil {
+		c.Master.Mono = d.Master.Mono
 	}
 	if c.Master.MP3Quality == nil {
 		c.Master.MP3Quality = d.Master.MP3Quality

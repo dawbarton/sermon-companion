@@ -216,8 +216,12 @@ use it to validate a release commit before tagging.
 - The default lossless capture format is stereo, 48 kHz, signed 16-bit PCM
   encoded to FLAC. Session metadata records the actual capture format and frame
   counts.
-- Default mastering targets are -16 LUFS integrated loudness, 11 LU loudness
-  range, -1.5 dBTP true peak, and LAME variable bitrate at quality 5. A service
-  is speech with pauses, so a constant bitrate spends bits on silence.
+- Default mastering targets are -19 LUFS integrated loudness, following the
+  Apple Podcasts recommendation for spoken word, 11 LU loudness range,
+  -1.5 dBTP true peak, a -1 dBFS limiter ceiling after normalisation, two
+  seconds of silence between parts, a mono downmix taken before the loudness is
+  measured because -19 LUFS is the mono figure, and LAME variable bitrate at
+  quality 5. A service is speech with
+  pauses, so a constant bitrate spends bits on silence.
 - Opening the MP3 folder is a local operating-system action initiated by the
   manager; keep the action visibly separate from creating the MP3.

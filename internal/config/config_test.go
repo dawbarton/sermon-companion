@@ -25,8 +25,8 @@ func TestExistingConfigGetsChurchDefault(t *testing.T) {
 
 func TestMasteringGapAndPeakLimitDefaults(t *testing.T) {
 	d := DefaultConfig().Master
-	if d.PeakLimitDBFS() != -1 || d.GapBetweenSegments() != 2 {
-		t.Fatalf("mastering defaults = %g dBFS, %g s", d.PeakLimitDBFS(), d.GapBetweenSegments())
+	if d.PeakLimitDBFS() != -1 || d.GapBetweenSegments() != 2 || !d.MonoDownmix() {
+		t.Fatalf("mastering defaults = %g dBFS, %g s, mono=%v", d.PeakLimitDBFS(), d.GapBetweenSegments(), d.MonoDownmix())
 	}
 
 	// A config written before either setting existed keeps the defaults, while a
@@ -39,19 +39,22 @@ func TestMasteringGapAndPeakLimitDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !older.Master.MonoDownmix() {
+		t.Fatal("an older config lost the mono downmix")
+	}
 	if older.Master.PeakLimitDBFS() != -1 || older.Master.GapBetweenSegments() != 2 {
 		t.Fatalf("upgraded config = %g dBFS, %g s", older.Master.PeakLimitDBFS(), older.Master.GapBetweenSegments())
 	}
 	zeroed := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(zeroed, []byte(`{"mastering":{"peakLimitDB":0,"gapSeconds":0}}`), 0o644); err != nil {
+	if err := os.WriteFile(zeroed, []byte(`{"mastering":{"peakLimitDB":0,"gapSeconds":0,"mono":false}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	explicit, err := LoadOrCreateConfig(zeroed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if explicit.Master.PeakLimitDBFS() != 0 || explicit.Master.GapBetweenSegments() != 0 {
-		t.Fatalf("explicit zeroes = %g dBFS, %g s", explicit.Master.PeakLimitDBFS(), explicit.Master.GapBetweenSegments())
+	if explicit.Master.PeakLimitDBFS() != 0 || explicit.Master.GapBetweenSegments() != 0 || explicit.Master.MonoDownmix() {
+		t.Fatalf("explicit settings = %g dBFS, %g s, mono=%v", explicit.Master.PeakLimitDBFS(), explicit.Master.GapBetweenSegments(), explicit.Master.MonoDownmix())
 	}
 
 	// Values outside what FFmpeg's limiter accepts, or beyond a sensible pause,

@@ -43,6 +43,14 @@ func TestTwoPassPerSegmentExport(t *testing.T) {
 	if got := probeDuration(t, ffprobe, output); math.Abs(got-6) > .3 {
 		t.Fatalf("MP3 duration = %g s, want about 6 s", got)
 	}
+	if got := probeChannels(t, ffprobe, output); got != 1 {
+		t.Fatalf("MP3 channels = %d, want mono", got)
+	}
+	// The downmix happens before the loudness is measured. Folding two identical
+	// channels afterwards would leave the MP3 about 3 LU below the target.
+	if got := probeLoudnessLUFS(t, ffmpeg, output); math.Abs(got-c.Master.IntegratedLUFS) > 1.5 {
+		t.Fatalf("MP3 loudness = %g LUFS, want about %g LUFS", got, c.Master.IntegratedLUFS)
+	}
 }
 
 // The service's own gap overrides the configured one, and the ceiling is
@@ -61,12 +69,17 @@ func TestExportHonoursTheServiceGapAndPeakCeiling(t *testing.T) {
 	c.Master.IntegratedLUFS = -6
 	ceiling := -12.0
 	c.Master.PeakLimitDB = &ceiling
+	stereo := false
+	c.Master.Mono = &stereo
 	if err := New(c, sessions).Export(session.ID); err != nil {
 		t.Fatal(err)
 	}
 	output := filepath.Join(dir, "exports", "2026-08-30-St-Marys-Church.mp3")
 	if got := probeDuration(t, ffprobe, output); math.Abs(got-7) > .3 {
 		t.Fatalf("MP3 duration = %g s, want about 7 s", got)
+	}
+	if got := probeChannels(t, ffprobe, output); got != 2 {
+		t.Fatalf("MP3 channels = %d, want the captured stereo", got)
 	}
 	peak := probePeakDBFS(t, ffmpeg, output)
 	if peak > -11 || peak < -14 {
@@ -135,6 +148,39 @@ func probeDuration(t *testing.T, ffprobe, path string) float64 {
 		t.Fatalf("parse duration %q: %v", output, err)
 	}
 	return seconds
+}
+
+func probeChannels(t *testing.T, ffprobe, path string) int {
+	t.Helper()
+	output, err := exec.Command(ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "default=nw=1:nk=1", path).Output()
+	if err != nil {
+		t.Fatalf("probe %s: %v", path, err)
+	}
+	channels, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	if err != nil {
+		t.Fatalf("parse channels %q: %v", output, err)
+	}
+	return channels
+}
+
+func probeLoudnessLUFS(t *testing.T, ffmpeg, path string) float64 {
+	t.Helper()
+	output, err := exec.Command(ffmpeg, "-hide_banner", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-").CombinedOutput()
+	if err != nil {
+		t.Fatalf("measure %s: %v\n%s", path, err, output)
+	}
+	// ebur128 reports a running figure as it goes; the last one is the summary
+	// for the whole file.
+	matches := regexp.MustCompile(`I:\s+(-?[0-9.]+) LUFS`).FindAllSubmatch(output, -1)
+	if matches == nil {
+		t.Fatalf("FFmpeg reported no integrated loudness for %s:\n%s", path, output)
+	}
+	last := matches[len(matches)-1][1]
+	loudness, err := strconv.ParseFloat(string(last), 64)
+	if err != nil {
+		t.Fatalf("parse loudness %q: %v", last, err)
+	}
+	return loudness
 }
 
 func probePeakDBFS(t *testing.T, ffmpeg, path string) float64 {

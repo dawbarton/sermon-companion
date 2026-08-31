@@ -131,12 +131,23 @@ when the operator clicks "Open MP3 folder".
 ## Mastering
 
 Included, complete segments are sorted chronologically. FFmpeg trims each one by
-its exact start and end sample before it is processed with
+its exact start and end sample and, by default, folds it to a single channel
+before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
 normalised FLAC. These homogeneous files are concatenated and encoded once with
 LAME. The defaults are `-19 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
 bitrate at quality 5.
+
+The downmix precedes the loudness measurement in both passes. Two identical
+channels measure about 3 LU louder than the one channel they carry, so
+normalising the stereo pair and folding afterwards would deliver a file below
+the target. A service is one speaker through one mix, so the fold costs nothing
+audible, and the -19 LUFS target assumes a mono file: Apple's spoken-word
+recommendation is -16 LUFS in stereo and -19 LUFS in mono. The saving in bytes
+is not the reason, and is small; LAME's joint stereo already spends almost
+nothing on a side channel that is silent. `mastering.mono` turns the fold off
+for a genuinely stereo source. The lossless recording is untouched.
 
 `loudnorm` aims at a true peak but does not guarantee one once its 192 kHz
 working audio is resampled, so `alimiter` holds the rendered segment below a

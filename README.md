@@ -78,6 +78,11 @@ Choose the service in the list on the left. Then:
   and is remembered for that service alone.
 - Press **Create MP3**, then **Open MP3 folder** or **Download MP3**.
 
+The MP3 is a single channel: a service is one mix of one speaker, so both
+recorded channels carry the same audio, and `-19` is the loudness recommended
+for a mono spoken-word file. `mastering.mono` below keeps the recorded stereo
+instead. The lossless recording stays stereo either way.
+
 The MP3 is named after the service date and church, for example
 `2026-08-30-St-Marys-Church.mp3`. Creating it again keeps the previous one in an
 `exports/previous` folder. Changing anything after the MP3 has been created
@@ -116,6 +121,7 @@ are:
 | `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
 | `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. The default, `-19`, follows the Apple Podcasts recommendation for spoken word. |
+| `mastering.mono` | Whether the MP3 is a single channel. The default, `true`, suits one speaker through one mix and matches the loudness target above. Set to `false` to keep the recorded stereo. |
 | `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |

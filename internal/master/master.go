@@ -84,7 +84,11 @@ func (m *Master) Export(id string) error {
 	}
 	defer logFile.Close()
 	gap := gapBetweenSegments(m.config.Master, session)
-	fmt.Fprintf(logFile, "\n[%s] export started: %d segments, %g s between them, limited to %g dBFS\n", started.Format(time.RFC3339), len(segments), gap, m.config.Master.PeakLimitDBFS())
+	channels := "stereo"
+	if m.config.Master.MonoDownmix() {
+		channels = "mono"
+	}
+	fmt.Fprintf(logFile, "\n[%s] export started: %d segments, %g s between them, %s, %g LUFS limited to %g dBFS\n", started.Format(time.RFC3339), len(segments), gap, channels, m.config.Master.IntegratedLUFS, m.config.Master.PeakLimitDBFS())
 
 	files := make([]string, 0, len(segments))
 	recordingRate := session.Capture.SampleRate
@@ -148,6 +152,12 @@ func (m *Master) normaliseSegment(input, workDir string, index int, segment stor
 	target := targetFilter(m.config.Master)
 	common := []string{"-hide_banner", "-nostats", "-i", input}
 	trim := fmt.Sprintf("atrim=start_sample=%d:end_sample=%d,asetpts=PTS-STARTPTS,", segment.StartFrame, *segment.EndFrame)
+	if m.config.Master.MonoDownmix() {
+		// The downmix precedes the measurement in both passes. Two identical
+		// channels measure about 3 LU louder than the one channel they carry, so
+		// normalising first and folding afterwards would land below the target.
+		trim += "aformat=channel_layouts=mono,"
+	}
 	analyseArgs := append(append([]string{}, common...), "-vn", "-af", trim+target+":print_format=json", "-f", "null", "-")
 	analysis, err := runCapture(m.config.FFmpeg, analyseArgs, "", logFile)
 	if err != nil {

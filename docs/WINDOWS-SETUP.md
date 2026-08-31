@@ -89,7 +89,7 @@ NORMAL OPERATION
    between one part and the next; it starts at two seconds and changes the MP3
    alone.
 7. Click "Create MP3". Each included part is measured and normalised separately
-   before the parts are joined. The result is named
+   before the parts are joined into one mono file. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
    Explorer, or download it through the browser.
 
