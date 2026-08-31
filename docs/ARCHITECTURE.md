@@ -115,12 +115,12 @@ only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
 
 A lossless recording is roughly 500 MB for a service, so the application applies
-a retention period at start-up: the source recording and its cached waveform are
-deleted once a service is older than `retentionDays`, defaulting to 60. The
-snapshot, the journal, and every published MP3 are kept, the removal is itself
-journalled, and `audioRemovedAt` on the session tells the review page to explain
-why there is no waveform and why no new MP3 can be made. Setting `retentionDays`
-to zero keeps every recording indefinitely.
+a retention period at start-up: a session directory is deleted outright once the
+service is older than `retentionDays`, defaulting to 60. This takes the exports
+with it. The MP3 is produced for the church website and the copy of record lives
+there, so nothing on this machine is intended to be permanent. A deletion is
+logged when it happens, because the session's own journal goes with it. Setting
+`retentionDays` to zero keeps every service indefinitely.
 
 The current MP3 name is deterministic from the local service date and a
 filesystem-safe, space-free form of the session's church. Re-exporting first

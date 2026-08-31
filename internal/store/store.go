@@ -95,6 +95,19 @@ func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 	return clone(session), nil
 }
 
+// Delete removes a session directory and everything in it, including its
+// journal and its exports. Retention is the only caller: a service is kept on
+// this machine only until its MP3 has been published elsewhere.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir, err := s.SessionDir(id)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
+}
+
 func (s *Store) Get(id string) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

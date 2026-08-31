@@ -77,24 +77,24 @@ func (m *Manager) RecoverInterrupted() error {
 	return nil
 }
 
-// ApplyRetention deletes the lossless recording of services that finished
-// longer ago than the configured retention period. Session history, the event
-// journal, and any published MP3 are kept: only the large source file and its
-// cached waveform go, and the removal is recorded in the journal.
-func (m *Manager) ApplyRetention(now time.Time) (int, error) {
+// ApplyRetention deletes services that finished longer ago than the configured
+// retention period, including their MP3s. A service is roughly 500 MB and the
+// exports are published to the church website, so nothing here is the copy of
+// record. Each deletion is logged, since the session's own journal goes with it.
+func (m *Manager) ApplyRetention(now time.Time) ([]string, error) {
 	days, limited := m.config.KeepRecordingsFor()
 	if !limited {
-		return 0, nil
+		return nil, nil
 	}
 	sessions, err := m.store.List()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
-	removed := 0
+	var deleted []string
 	for index := range sessions {
 		session := &sessions[index]
-		if session.AudioRemovedAt != nil || session.Status == "recording" || session.Status == "starting" {
+		if session.Status == "recording" || session.Status == "starting" {
 			continue
 		}
 		finished := session.StartedAt
@@ -104,38 +104,12 @@ func (m *Manager) ApplyRetention(now time.Time) (int, error) {
 		if !finished.Before(cutoff) {
 			continue
 		}
-		if err := m.removeRecording(session, now); err != nil {
-			return removed, err
+		if err := m.store.Delete(session.ID); err != nil {
+			return deleted, fmt.Errorf("delete expired service %s: %w", session.ID, err)
 		}
-		removed++
+		deleted = append(deleted, session.ID)
 	}
-	return removed, nil
-}
-
-func (m *Manager) removeRecording(session *store.Session, now time.Time) error {
-	path, err := m.store.SessionFile(session.ID, session.AudioFile)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove recording %s: %w", session.ID, err)
-	}
-	dir, err := m.store.SessionDir(session.ID)
-	if err != nil {
-		return err
-	}
-	cached, _ := filepath.Glob(filepath.Join(dir, "waveform-*.json"))
-	for _, name := range cached {
-		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove cached waveform %s: %w", session.ID, err)
-		}
-	}
-	removedAt := now.UTC()
-	_, err = m.store.Update(session.ID, "capture.recording_removed", map[string]any{"audioFile": session.AudioFile, "retentionDays": *m.config.RetentionDays}, func(s *store.Session) error {
-		s.AudioRemovedAt = &removedAt
-		return nil
-	})
-	return err
+	return deleted, nil
 }
 
 func (m *Manager) Start(title string) (*store.Session, error) {

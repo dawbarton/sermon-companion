@@ -35,7 +35,7 @@ func recordedSession(t *testing.T, sessions *store.Store, title string, ended ti
 	return updated
 }
 
-func TestApplyRetentionRemovesOnlyExpiredRecordings(t *testing.T) {
+func TestApplyRetentionDeletesOnlyExpiredServices(t *testing.T) {
 	sessions, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -45,42 +45,36 @@ func TestApplyRetentionRemovesOnlyExpiredRecordings(t *testing.T) {
 	recent := recordedSession(t, sessions, "Recent service", now.AddDate(0, 0, -5))
 
 	c := config.DefaultConfig()
-	removed, err := New(c, sessions).ApplyRetention(now)
+	deleted, err := New(c, sessions).ApplyRetention(now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed != 1 {
-		t.Fatalf("removed %d recordings, want 1", removed)
+	if len(deleted) != 1 || deleted[0] != old.ID {
+		t.Fatalf("deleted %v, want [%s]", deleted, old.ID)
 	}
 
 	oldDir, _ := sessions.SessionDir(old.ID)
-	if _, err := os.Stat(filepath.Join(oldDir, "audio.flac")); !os.IsNotExist(err) {
-		t.Fatal("the expired recording was kept")
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatal("the expired service directory was kept")
 	}
-	if _, err := os.Stat(filepath.Join(oldDir, "waveform-20pps.json")); !os.IsNotExist(err) {
-		t.Fatal("the cached waveform of an expired recording was kept")
-	}
-	if _, err := os.Stat(filepath.Join(oldDir, "exports", "sermon.mp3")); err != nil {
-		t.Fatalf("the published MP3 was removed: %v", err)
-	}
-	reloaded, err := sessions.Get(old.ID)
-	if err != nil || reloaded.AudioRemovedAt == nil {
-		t.Fatalf("removal was not recorded: %#v, %v", reloaded, err)
+	if _, err := sessions.Get(old.ID); err == nil {
+		t.Fatal("the expired service is still listed")
 	}
 
 	recentDir, _ := sessions.SessionDir(recent.ID)
-	if _, err := os.Stat(filepath.Join(recentDir, "audio.flac")); err != nil {
-		t.Fatalf("a recording within the retention period was removed: %v", err)
+	for _, name := range []string{"audio.flac", "session.json", filepath.Join("exports", "sermon.mp3")} {
+		if _, err := os.Stat(filepath.Join(recentDir, name)); err != nil {
+			t.Fatalf("a service within the retention period lost %s: %v", name, err)
+		}
 	}
 
-	// A second pass must not repeat the work or the journal entry.
 	again, err := New(c, sessions).ApplyRetention(now)
-	if err != nil || again != 0 {
-		t.Fatalf("second pass removed %d recordings: %v", again, err)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("second pass deleted %v: %v", again, err)
 	}
 }
 
-func TestApplyRetentionKeepsEverythingWhenDisabled(t *testing.T) {
+func TestApplyRetentionKeepsEveryServiceWhenDisabled(t *testing.T) {
 	sessions, err := store.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -89,12 +83,12 @@ func TestApplyRetentionKeepsEverythingWhenDisabled(t *testing.T) {
 	session := recordedSession(t, sessions, "Ancient service", now.AddDate(-2, 0, 0))
 	c := config.DefaultConfig()
 	c.RetentionDays = nil
-	removed, err := New(c, sessions).ApplyRetention(now)
-	if err != nil || removed != 0 {
-		t.Fatalf("removed %d recordings with retention disabled: %v", removed, err)
+	deleted, err := New(c, sessions).ApplyRetention(now)
+	if err != nil || len(deleted) != 0 {
+		t.Fatalf("deleted %v with retention disabled: %v", deleted, err)
 	}
 	dir, _ := sessions.SessionDir(session.ID)
 	if _, err := os.Stat(filepath.Join(dir, "audio.flac")); err != nil {
-		t.Fatalf("recording removed with retention disabled: %v", err)
+		t.Fatalf("service deleted with retention disabled: %v", err)
 	}
 }

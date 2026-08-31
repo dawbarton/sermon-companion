@@ -22,11 +22,16 @@ changing user-visible behaviour or deployment.
 ## Non-negotiable product invariants
 
 - Preserve the complete source recording. Never edit, trim, normalise, or
-  overwrite `audio.flac` in place.
+  overwrite `audio.flac` in place. The configured retention period is the sole
+  exception, and it deletes a whole session rather than altering a recording.
 - Recording is continuous. Dock actions create generic markers and segments;
   they do not pause the underlying capture.
 - Audio-frame positions are canonical for live segments and markers. Never
   replace them with wall-clock elapsed time; seconds are a derived UI value.
+  This binds the fallback FFmpeg backend too: it anchors the same frame clock to
+  the position FFmpeg reports through `-progress`, because elapsed wall time
+  since the process was spawned includes the device start-up latency and placed
+  every mark about half a second ahead of the matching audio.
 - The native callback must only copy into its preallocated bounded queue and
   advance the frame clock. Never perform disk, process, or metadata I/O there.
 - Queue overflow or an accepted/written frame mismatch is a capture failure.
@@ -39,6 +44,10 @@ changing user-visible behaviour or deployment.
 - Metadata updates must remain non-destructive and auditable. Append and flush
   an event in `events.jsonl` before atomically replacing `session.json`.
 - Segment removal is archival and reversible. Do not delete its history.
+- Retention deletes an expired session directory outright, exports included.
+  A service is roughly 500 MB, and the published MP3's copy of record is the
+  church website, not this machine. Log each deletion, because the session's own
+  journal goes with it, and never apply retention to an active recording.
 - Complete, non-archived segments may touch but must never overlap, including
   segments excluded from export. Enforce this in the browser interaction, the
   HTTP API, and immediately before mastering. Whole-segment dragging is clamped
@@ -208,6 +217,7 @@ use it to validate a release commit before tagging.
   encoded to FLAC. Session metadata records the actual capture format and frame
   counts.
 - Default mastering targets are -16 LUFS integrated loudness, 11 LU loudness
-  range, -1.5 dBTP true peak, and 128 kbit/s MP3.
+  range, -1.5 dBTP true peak, and LAME variable bitrate at quality 5. A service
+  is speech with pauses, so a constant bitrate spends bits on silence.
 - Opening the MP3 folder is a local operating-system action initiated by the
   manager; keep the action visibly separate from creating the MP3.

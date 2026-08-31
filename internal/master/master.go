@@ -43,9 +43,6 @@ func (m *Master) Export(id string) error {
 	if session.Status == "recording" || session.Status == "starting" {
 		return errors.New("stop the recording before exporting")
 	}
-	if session.AudioRemovedAt != nil {
-		return errors.New("the lossless recording was removed after the retention period, so the MP3 cannot be created again")
-	}
 	if strings.TrimSpace(session.Church) == "" {
 		session.Church = m.config.Church
 	}

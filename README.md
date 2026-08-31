@@ -90,10 +90,10 @@ Each service has its own folder there, holding the lossless recording, the
 marks, and the MP3s made from it. Replacing the application folder with a newer
 release does not touch any of it.
 
-Lossless recordings are large, roughly 500 MB for a service. The application
-deletes recordings older than 60 days when it starts, keeping the service
-details and any MP3 already created. Change or switch off that period with
-`retentionDays` below.
+Recordings are large, roughly 500 MB for a service. When it starts, the
+application deletes every service older than 60 days, including its MP3s. The
+MP3 belongs on the church website, not on this computer, so upload it before
+then. Change or switch off that period with `retentionDays` below.
 
 ## Settings
 
@@ -105,7 +105,7 @@ are:
 | --- | --- |
 | `church` | Church name for new services, used in the MP3 filename. |
 | `capture.deviceId` | Recording device. Run `SermonCompanion.exe --list-devices` to see the available devices and their identifiers. |
-| `retentionDays` | Days a lossless recording is kept. `0` keeps every recording indefinitely. |
+| `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
 | `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. `-16` suits speech played on a phone or laptop. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |

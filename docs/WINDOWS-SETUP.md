@@ -93,11 +93,11 @@ The complete FLAC remains available if an operator makes a mistake. Creating a
 new MP3 never changes it. Recreating an MP3 keeps the requested simple filename;
 the previous version is retained under `exports\previous`.
 
-Lossless recordings are large. When it starts, the application deletes the
-recording of any service older than the `retentionDays` setting, 60 days by
-default, and keeps the service details and every MP3 already created. Copy an
-MP3 somewhere safe if it matters, and set `retentionDays` to 0 to keep every
-recording indefinitely.
+Recordings are large. When it starts, the application deletes any service older
+than the `retentionDays` setting, 60 days by default, including the MP3s made
+from it. Upload each MP3 to the church website soon after the service, which is
+where the lasting copy belongs. Set `retentionDays` to 0 to keep every service
+indefinitely.
 
 If the dock displays a recording problem or any dropped frames, retain the
 partial recording but do not assume it is complete. Give `capture.log` and the

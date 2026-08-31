@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -63,11 +64,11 @@ func main() {
 	if err := captureManager.RecoverInterrupted(); err != nil {
 		log.Printf("recover interrupted recordings: %v", err)
 	}
-	if removed, err := captureManager.ApplyRetention(time.Now()); err != nil {
+	if deleted, err := captureManager.ApplyRetention(time.Now()); err != nil {
 		log.Printf("apply recording retention: %v", err)
-	} else if removed > 0 {
+	} else if len(deleted) > 0 {
 		days, _ := c.KeepRecordingsFor()
-		log.Printf("removed the source recording of %d service(s) older than %d days; their MP3s and details were kept", removed, days)
+		log.Printf("deleted %d service(s) older than %d days: %s", len(deleted), days, strings.Join(deleted, ", "))
 	}
 	mastering := master.New(c, sessions)
 	server := app.NewServer(c, sessions, captureManager, mastering, app.StaticFiles)
