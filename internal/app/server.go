@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -205,6 +206,15 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// The review page is opened as soon as the service ends, and its first
+	// request would otherwise decode the whole recording while the operator is
+	// already trying to listen to it. Build the waveform now, so that nothing is
+	// competing with the recording for the disk when a segment is first played.
+	go func(id string) {
+		if _, err := s.waveform.Generate(context.Background(), id); err != nil {
+			log.Printf("waveform for %s: %v", id, err)
+		}
+	}(session.ID)
 	writeJSON(w, http.StatusOK, session)
 }
 

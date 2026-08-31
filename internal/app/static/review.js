@@ -19,6 +19,7 @@ let playingSegmentID = null;
 let waveform = emptyWaveform();
 let dragState = null;
 let audioSource = null;
+let playbackToken = 0;
 
 function emptyWaveform() {
   return {sessionID: null, peaks: null, pointsPerSecond: 20, duration: 0, viewStart: 0, viewEnd: 1, loading: false};
@@ -183,14 +184,46 @@ async function toggleSegmentPlayback(segment) {
   }
   stopSegmentPlayback();
   playingSegmentID = segment.id;
-  elements.audio.currentTime = segment.startSeconds;
+  const token = playbackToken;
   renderSegmentRows();
   renderPlayhead();
-  try { await elements.audio.play(); }
+  try {
+    await seekTo(segment.startSeconds);
+    if (token !== playbackToken) return;
+    await elements.audio.play();
+  }
   catch (error) { playingSegmentID = null; renderSegmentRows(); showError(error); }
 }
 
+// A recording carries no FLAC seek table, so the first seek into a part of the
+// service the browser has not fetched yet is a guess at a byte position and can
+// land a second or so from the marker. That guess is what fetches the audio
+// around it, which is why seeking again is exact. Waiting for the player to
+// arrive at the requested time before starting saves the operator pressing play
+// twice to hear the segment from its own beginning.
+async function seekTo(seconds) {
+  const audio = elements.audio;
+  if (audio.readyState === 0) await audioEvent("loadedmetadata");
+  for (let attempt = 0; attempt < 3 && Math.abs(audio.currentTime-seconds) > .05; attempt++) {
+    audio.currentTime = seconds;
+    await audioEvent("seeked");
+  }
+}
+
+// Every wait on a media event is bounded, so an event that never arrives leaves
+// the player usable rather than stuck short of playing.
+function audioEvent(type, timeout = 3000) {
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); elements.audio.removeEventListener(type, finish); resolve(); };
+    const timer = setTimeout(finish, timeout);
+    elements.audio.addEventListener(type, finish);
+  });
+}
+
 function stopSegmentPlayback() {
+  // Abandons a seek that has not reached playback yet, so it cannot start the
+  // audio after the operator has moved on.
+  playbackToken++;
   if (playingSegmentID == null) return;
   playingSegmentID = null;
   elements.audio.pause();
@@ -203,7 +236,7 @@ function playingSegment() {
 
 function markerRow(marker) {
   const row = document.createElement("div"); row.className = "marker";
-  const time = document.createElement("button"); time.textContent = formatTime(marker.atSeconds, true); time.addEventListener("click", () => { stopSegmentPlayback(); elements.audio.currentTime = marker.atSeconds; void elements.audio.play(); });
+  const time = document.createElement("button"); time.textContent = formatTime(marker.atSeconds, true); time.addEventListener("click", async () => { stopSegmentPlayback(); const token = playbackToken; await seekTo(marker.atSeconds); if (token === playbackToken) void elements.audio.play(); });
   const label = document.createElement("span"); label.textContent = marker.label;
   row.append(time, label); return row;
 }
@@ -374,13 +407,14 @@ function showFullWaveform() {
   waveform.viewStart = 0; waveform.viewEnd = waveform.duration || Math.max(current?.durationSeconds || 0, 1); renderWaveform();
 }
 
-function seekFromPointer(event) {
+async function seekFromPointer(event) {
   if (event.target.closest(".wave-segment")) return;
   const bounds = elements["waveform-viewport"].getBoundingClientRect();
   const ratio = clamp((event.clientX-bounds.left)/bounds.width, 0, 1);
   stopSegmentPlayback();
-  elements.audio.currentTime = waveform.viewStart+ratio*(waveform.viewEnd-waveform.viewStart);
-  renderPlayhead();
+  const token = playbackToken;
+  await seekTo(waveform.viewStart+ratio*(waveform.viewEnd-waveform.viewStart));
+  if (token === playbackToken) renderPlayhead();
 }
 
 function renderPlayhead() {
