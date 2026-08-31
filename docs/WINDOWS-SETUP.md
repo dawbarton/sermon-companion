@@ -88,8 +88,10 @@ NORMAL OPERATION
    exported. "Silence between segments", below the list, sets the pause left
    between one part and the next; it starts at two seconds and changes the MP3
    alone.
-7. Click "Create MP3". Each included part is measured and normalised separately
-   before the parts are joined into one mono file. The result is named
+7. Click "Create MP3". Parts sharing a label are measured together, so a sermon
+   split in two to drop something from the middle keeps one volume, while
+   differently labelled parts are levelled separately. The parts are then joined
+   into one mono file. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
    Explorer, or download it through the browser.
 

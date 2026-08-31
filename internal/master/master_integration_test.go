@@ -1,6 +1,7 @@
 package master
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -87,6 +88,70 @@ func TestExportHonoursTheServiceGapAndPeakCeiling(t *testing.T) {
 	}
 }
 
+// A sermon split in two, with a reading between the halves and the second half
+// eight decibels quieter than the first. Levelling each piece on its own would
+// bring the halves to the same loudness and leave a step at the cut; measuring
+// them together keeps the difference the microphone recorded.
+func TestSegmentsSharingALabelAreLevelledTogether(t *testing.T) {
+	ffmpeg, ffprobe := ffmpegTools(t)
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Split sermon", "St Mary's Church", time.Date(2026, 8, 30, 10, 0, 0, 0, time.Local))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	audio := filepath.Join(dir, "audio.flac")
+	// Three four-second sections: the first half of the talk, a quiet reading,
+	// then the second half at -8 dB.
+	generate := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "sine=frequency=300:sample_rate=48000:duration=4",
+		"-f", "lavfi", "-i", "sine=frequency=300:sample_rate=48000:duration=4",
+		"-f", "lavfi", "-i", "sine=frequency=300:sample_rate=48000:duration=4",
+		"-filter_complex", "[1:a]volume=0.1[reading];[2:a]volume=0.398[second];[0:a][reading][second]concat=n=3:v=0:a=1[out]",
+		"-map", "[out]", "-ac", "2", "-c:a", "flac", audio)
+	if output, err := generate.CombinedOutput(); err != nil {
+		t.Fatalf("generate source: %v\n%s", err, output)
+	}
+	seconds := []float64{4, 8, 12}
+	frames := []uint64{192_000, 384_000, 576_000}
+	gap, now := 0.0, time.Now().UTC()
+	if _, err := sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status, s.AudioFile, s.Duration, s.GapSeconds = "stopped", "audio.flac", 12, &gap
+		s.Capture = store.CaptureInfo{SampleRate: 48_000, Channels: 2, SampleFormat: "s16le", TotalFrames: 576_000}
+		s.Segments = []store.Segment{
+			{ID: "first", Kind: "sermon", Label: "Sermon", Start: 0, End: &seconds[0], EndFrame: &frames[0], Include: true, CreatedAt: now, UpdatedAt: now},
+			{ID: "reading", Kind: "reading", Label: "Reading", StartFrame: frames[0], Start: 4, End: &seconds[1], EndFrame: &frames[1], Include: true, CreatedAt: now, UpdatedAt: now},
+			{ID: "second", Kind: "sermon", Label: "Sermon", StartFrame: frames[1], Start: 8, End: &seconds[2], EndFrame: &frames[2], Include: true, CreatedAt: now, UpdatedAt: now},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	c.FFmpeg = ffmpeg
+	if err := New(c, sessions).Export(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "exports", "2026-08-30-St-Marys-Church.mp3")
+	if got := probeDuration(t, ffprobe, output); math.Abs(got-12) > .3 {
+		t.Fatalf("MP3 duration = %g s, want the three parts back to back", got)
+	}
+	// Measured away from the joins, where the encoder blurs the boundary.
+	firstHalf := probeLoudnessRange(t, ffmpeg, output, .3, 3.7)
+	reading := probeLoudnessRange(t, ffmpeg, output, 4.3, 7.7)
+	secondHalf := probeLoudnessRange(t, ffmpeg, output, 8.3, 11.7)
+	if step := (firstHalf - secondHalf) - 8; math.Abs(step) > 1.5 {
+		t.Fatalf("halves of the sermon are %g LU apart, want the recorded 8 LU (%g, %g LUFS)", firstHalf-secondHalf, firstHalf, secondHalf)
+	}
+	// The reading carries its own label, so it is still levelled on its own.
+	if math.Abs(reading-c.Master.IntegratedLUFS) > 1.5 {
+		t.Fatalf("reading = %g LUFS, want about %g LUFS", reading, c.Master.IntegratedLUFS)
+	}
+}
+
 func ffmpegTools(t *testing.T) (string, string) {
 	t.Helper()
 	ffmpeg, err := exec.LookPath("ffmpeg")
@@ -165,7 +230,19 @@ func probeChannels(t *testing.T, ffprobe, path string) int {
 
 func probeLoudnessLUFS(t *testing.T, ffmpeg, path string) float64 {
 	t.Helper()
-	output, err := exec.Command(ffmpeg, "-hide_banner", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-").CombinedOutput()
+	return measureLoudness(t, ffmpeg, path, "ebur128")
+}
+
+// probeLoudnessRange measures one stretch of a finished MP3, so the parts of a
+// service can be compared with one another.
+func probeLoudnessRange(t *testing.T, ffmpeg, path string, from, to float64) float64 {
+	t.Helper()
+	return measureLoudness(t, ffmpeg, path, fmt.Sprintf("atrim=start=%g:end=%g,asetpts=PTS-STARTPTS,ebur128", from, to))
+}
+
+func measureLoudness(t *testing.T, ffmpeg, path, filter string) float64 {
+	t.Helper()
+	output, err := exec.Command(ffmpeg, "-hide_banner", "-nostats", "-i", path, "-af", filter, "-f", "null", "-").CombinedOutput()
 	if err != nil {
 		t.Fatalf("measure %s: %v\n%s", path, err, output)
 	}

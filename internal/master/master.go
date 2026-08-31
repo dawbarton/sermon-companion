@@ -95,6 +95,17 @@ func (m *Master) Export(id string) error {
 	if recordingRate <= 0 {
 		recordingRate = m.config.Capture.SampleRate
 	}
+	// Everything the operator gave one label is measured as a single piece of
+	// speech, so the gain is the same across all of it.
+	measured := make(map[string]measurement, len(segments))
+	for _, group := range groupByLabel(segments) {
+		value, err := m.measureGroup(input, group, logFile)
+		if err != nil {
+			return m.fail(id, fmt.Errorf("measure %q: %w", group.label, err))
+		}
+		fmt.Fprintf(logFile, "%q measured across %d segment(s): I=%s LUFS, TP=%s dBTP\n", group.label, len(group.segments), value.InputI, value.InputTP)
+		measured[group.key] = value
+	}
 	for i, segment := range segments {
 		// The silence goes after every segment but the last, so the MP3 neither
 		// opens nor ends on a pause.
@@ -102,11 +113,10 @@ func (m *Master) Export(id string) error {
 		if i == len(segments)-1 {
 			pad = 0
 		}
-		measurement, output, err := m.normaliseSegment(input, workDir, i, segment, recordingRate, pad, logFile)
+		output, err := m.renderSegment(input, workDir, i, segment, measured[labelKey(segment)], recordingRate, pad, logFile)
 		if err != nil {
 			return m.fail(id, fmt.Errorf("normalise %q: %w", segment.Label, err))
 		}
-		fmt.Fprintf(logFile, "segment %d %q measured I=%s LUFS, TP=%s dBTP\n", i+1, segment.Label, measurement.InputI, measurement.InputTP)
 		files = append(files, output)
 	}
 
@@ -145,28 +155,48 @@ func (m *Master) Export(id string) error {
 	return err
 }
 
-func (m *Master) normaliseSegment(input, workDir string, index int, segment store.Segment, recordingRate int, padSeconds float64, logFile *os.File) (measurement, string, error) {
-	if segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
-		return measurement{}, "", errors.New("segment has invalid audio-frame boundaries")
+// measureGroup runs the analysis pass over every segment carrying one label at
+// once. The segments are joined inside the filter graph, so FFmpeg measures the
+// speech as the operator hears it rather than as the pieces it was cut into.
+func (m *Master) measureGroup(input string, group segmentGroup, logFile *os.File) (measurement, error) {
+	graph := new(strings.Builder)
+	fmt.Fprintf(graph, "[0:a]asplit=%d", len(group.segments))
+	for i := range group.segments {
+		fmt.Fprintf(graph, "[whole%d]", i)
+	}
+	graph.WriteString(";")
+	for i, segment := range group.segments {
+		trim, err := trimFilter(segment)
+		if err != nil {
+			return measurement{}, err
+		}
+		fmt.Fprintf(graph, "[whole%d]%s[part%d];", i, trim, i)
+	}
+	for i := range group.segments {
+		fmt.Fprintf(graph, "[part%d]", i)
+	}
+	fmt.Fprintf(graph, "concat=n=%d:v=0:a=1,%s%s:print_format=json[measured]", len(group.segments), m.downmixFilter(), targetFilter(m.config.Master))
+	args := []string{"-hide_banner", "-nostats", "-i", input, "-filter_complex", graph.String(), "-map", "[measured]", "-vn", "-f", "null", "-"}
+	analysis, err := runCapture(m.config.FFmpeg, args, "", logFile)
+	if err != nil {
+		return measurement{}, err
+	}
+	return parseMeasurement(analysis)
+}
+
+// renderSegment applies the gain its group was measured for, so two halves of
+// one talk come out at the same level as each other.
+func (m *Master) renderSegment(input, workDir string, index int, segment store.Segment, measured measurement, recordingRate int, padSeconds float64, logFile *os.File) (string, error) {
+	trimmed, err := trimFilter(segment)
+	if err != nil {
+		return "", err
+	}
+	if measured.InputI == "" {
+		return "", errors.New("this segment was not measured")
 	}
 	target := targetFilter(m.config.Master)
 	common := []string{"-hide_banner", "-nostats", "-i", input}
-	trim := fmt.Sprintf("atrim=start_sample=%d:end_sample=%d,asetpts=PTS-STARTPTS,", segment.StartFrame, *segment.EndFrame)
-	if m.config.Master.MonoDownmix() {
-		// The downmix precedes the measurement in both passes. Two identical
-		// channels measure about 3 LU louder than the one channel they carry, so
-		// normalising first and folding afterwards would land below the target.
-		trim += "aformat=channel_layouts=mono,"
-	}
-	analyseArgs := append(append([]string{}, common...), "-vn", "-af", trim+target+":print_format=json", "-f", "null", "-")
-	analysis, err := runCapture(m.config.FFmpeg, analyseArgs, "", logFile)
-	if err != nil {
-		return measurement{}, "", err
-	}
-	measured, err := parseMeasurement(analysis)
-	if err != nil {
-		return measurement{}, "", err
-	}
+	trim := trimmed + "," + m.downmixFilter()
 	filter := trim + target + ":measured_I=" + measured.InputI + ":measured_LRA=" + measured.InputLRA + ":measured_TP=" + measured.InputTP + ":measured_thresh=" + measured.InputThresh + ":offset=" + measured.TargetOffset + ":linear=true:print_format=summary"
 	// loudnorm upsamples internally to 192 kHz for true-peak detection. Resample
 	// explicitly inside the filter graph before handing frames to FLAC; relying
@@ -181,9 +211,57 @@ func (m *Master) normaliseSegment(input, workDir string, index int, segment stor
 	output := filepath.Join(workDir, fmt.Sprintf("segment-%03d.flac", index+1))
 	renderArgs := append(append([]string{}, common...), "-vn", "-af", filter, "-ar", strconv.Itoa(recordingRate), "-c:a", "flac", "-compression_level", "5", output)
 	if err := runLogged(m.config.FFmpeg, renderArgs, "", logFile); err != nil {
-		return measurement{}, "", err
+		return "", err
 	}
-	return measured, output, nil
+	return output, nil
+}
+
+// trimFilter cuts one segment out of the recording by exact audio frame.
+func trimFilter(segment store.Segment) (string, error) {
+	if segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
+		return "", errors.New("segment has invalid audio-frame boundaries")
+	}
+	return fmt.Sprintf("atrim=start_sample=%d:end_sample=%d,asetpts=PTS-STARTPTS", segment.StartFrame, *segment.EndFrame), nil
+}
+
+// downmixFilter folds the export to one channel, and is placed ahead of the
+// loudness in both passes. Two identical channels measure about 3 LU louder
+// than the one channel they carry, so normalising first and folding afterwards
+// would land below the target. It ends with a comma, or is empty.
+func (m *Master) downmixFilter() string {
+	if m.config.Master.MonoDownmix() {
+		return "aformat=channel_layouts=mono,"
+	}
+	return ""
+}
+
+type segmentGroup struct {
+	key      string
+	label    string
+	segments []store.Segment
+}
+
+func labelKey(segment store.Segment) string { return strings.ToLower(strings.TrimSpace(segment.Label)) }
+
+// groupByLabel gathers the segments the operator gave one label. A sermon split
+// in two so that something in the middle can be dropped is one piece of speech,
+// and levelling the halves apart would leave a step where the cut was made.
+// Groups appear in the order their first segment does, and each keeps its
+// segments in the order they were given.
+func groupByLabel(segments []store.Segment) []segmentGroup {
+	groups := make([]segmentGroup, 0, len(segments))
+	at := make(map[string]int, len(segments))
+	for _, segment := range segments {
+		key := labelKey(segment)
+		index, seen := at[key]
+		if !seen {
+			at[key] = len(groups)
+			groups = append(groups, segmentGroup{key: key, label: segment.Label})
+			index = at[key]
+		}
+		groups[index].segments = append(groups[index].segments, segment)
+	}
+	return groups
 }
 
 func (m *Master) fail(id string, cause error) error {

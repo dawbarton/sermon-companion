@@ -9,8 +9,8 @@ afterwards.
 
 After the service, a review page shows the recording as a waveform. Drag the
 marked parts into place, listen to them, then create the MP3. Each part is
-levelled separately, so a quiet reading and a loud sermon end up at the same
-comfortable volume.
+levelled by its label, so a quiet reading and a loud sermon end up at the same
+comfortable volume, while a sermon split in two keeps one volume throughout.
 
 ## What you need
 
@@ -73,6 +73,10 @@ Choose the service in the list on the left. Then:
 - Add a part that was missed, or remove one that is not wanted. Removing is
   reversible: removed parts stay listed and can be restored.
 - Untick **Use** to keep a part in the record but leave it out of the MP3.
+- Parts given the same label are levelled together. Cutting something out of the
+  middle of a sermon leaves two parts both labelled Sermon, and they come out at
+  one volume rather than as two halves at different levels. Give a part its own
+  label to have it levelled on its own.
 - **Silence between segments**, below the list, sets the pause left between one
   part and the next in the MP3. It starts at two seconds, changes only the MP3,
   and is remembered for that service alone.

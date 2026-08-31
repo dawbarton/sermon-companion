@@ -135,7 +135,17 @@ its exact start and end sample and, by default, folds it to a single channel
 before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
-normalised FLAC. These homogeneous files are concatenated and encoded once with
+normalised FLAC.
+
+The measuring pass is per label, not per segment. Segments carrying the same
+label, compared without regard to capitals or surrounding spaces, are joined
+inside the filter graph with `asplit` and `concat` and measured as one piece of
+speech, and every segment in the group is then rendered with that group's
+measured values. A sermon cut in two to drop something from the middle
+therefore keeps one volume across the cut, where levelling each piece to the
+target would have equalised the halves and left a step. Grouping costs nothing:
+one pass reading to the end of the last segment replaces one pass per segment,
+each of which read from the beginning of the file. These homogeneous files are concatenated and encoded once with
 LAME. The defaults are `-19 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
 bitrate at quality 5.
 
@@ -213,7 +223,7 @@ cmd/sermon-companion/   application entry point
 internal/app/           local HTTP API and embedded browser UI
 internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback
 internal/config/        configuration defaults and create-on-first-run behaviour
-internal/master/        per-segment two-pass loudness normalisation and MP3
+internal/master/        per-label two-pass loudness normalisation and MP3
 internal/store/         versioned session model and append-only event journal
 internal/waveform/      cached compact peak envelope
 docs/                   deployment and architecture notes

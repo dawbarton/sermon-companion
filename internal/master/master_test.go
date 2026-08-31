@@ -107,3 +107,31 @@ func TestGapPrefersTheServiceOverTheConfiguredDefault(t *testing.T) {
 		t.Fatalf("unclamped gap = %g", got)
 	}
 }
+
+func TestGroupByLabelKeepsOnePieceOfSpeechTogether(t *testing.T) {
+	end := func(v float64) *float64 { return &v }
+	segments := []store.Segment{
+		{ID: "a", Label: "Sermon", End: end(1)},
+		{ID: "b", Label: "Reading", End: end(2)},
+		{ID: "c", Label: " sermon ", End: end(3)},
+		{ID: "d", Label: "Notices", End: end(4)},
+	}
+	groups := groupByLabel(segments)
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3", len(groups))
+	}
+	// Groups follow the order their first segment appears in, and a label typed
+	// with different capitals or stray spaces is the same piece of speech.
+	if groups[0].label != "Sermon" || len(groups[0].segments) != 2 {
+		t.Fatalf("first group = %q with %d segments", groups[0].label, len(groups[0].segments))
+	}
+	if groups[0].segments[0].ID != "a" || groups[0].segments[1].ID != "c" {
+		t.Fatalf("sermon group holds %q and %q", groups[0].segments[0].ID, groups[0].segments[1].ID)
+	}
+	if groups[1].label != "Reading" || groups[2].label != "Notices" {
+		t.Fatalf("later groups = %q, %q", groups[1].label, groups[2].label)
+	}
+	if labelKey(segments[2]) != labelKey(segments[0]) {
+		t.Fatal("label keys differ by capitals or spacing")
+	}
+}
