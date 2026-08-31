@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
@@ -78,5 +79,31 @@ func TestExportSegmentsFiltersAndSorts(t *testing.T) {
 	got := exportSegments(segments)
 	if len(got) != 2 || got[0].ID != "first" || got[1].ID != "later" {
 		t.Fatalf("unexpected export order: %#v", got)
+	}
+}
+
+func TestPeakLimiterUsesTheConfiguredCeiling(t *testing.T) {
+	mastering := config.DefaultConfig().Master
+	if got := peakLimiter(mastering); got != "alimiter=limit=0.891251:level=0" {
+		t.Fatalf("peakLimiter() = %q", got)
+	}
+	full := 0.0
+	mastering.PeakLimitDB = &full
+	if got := peakLimiter(mastering); got != "alimiter=limit=1.000000:level=0" {
+		t.Fatalf("peakLimiter() at full scale = %q", got)
+	}
+}
+
+func TestGapPrefersTheServiceOverTheConfiguredDefault(t *testing.T) {
+	mastering := config.DefaultConfig().Master
+	if got := gapBetweenSegments(mastering, &store.Session{}); got != 2 {
+		t.Fatalf("gap without a service setting = %g", got)
+	}
+	five, silly := 5.0, 600.0
+	if got := gapBetweenSegments(mastering, &store.Session{GapSeconds: &five}); got != 5 {
+		t.Fatalf("gap set on the service = %g", got)
+	}
+	if got := gapBetweenSegments(mastering, &store.Session{GapSeconds: &silly}); got != config.MaximumGapSeconds {
+		t.Fatalf("unclamped gap = %g", got)
 	}
 }

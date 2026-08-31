@@ -73,6 +73,9 @@ Choose the service in the list on the left. Then:
 - Add a part that was missed, or remove one that is not wanted. Removing is
   reversible: removed parts stay listed and can be restored.
 - Untick **Use** to keep a part in the record but leave it out of the MP3.
+- **Silence between segments**, below the list, sets the pause left between one
+  part and the next in the MP3. It starts at two seconds, changes only the MP3,
+  and is remembered for that service alone.
 - Press **Create MP3**, then **Open MP3 folder** or **Download MP3**.
 
 The MP3 is named after the service date and church, for example
@@ -113,6 +116,8 @@ are:
 | `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
 | `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. `-16` suits speech played on a phone or laptop. |
+| `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
+| `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |
 
 ## Building from source

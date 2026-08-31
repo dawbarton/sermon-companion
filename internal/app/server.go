@@ -133,7 +133,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, session)
+	s.writeSession(w, http.StatusCreated, session)
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
@@ -142,16 +142,28 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
+	s.writeSession(w, http.StatusOK, session)
+}
+
+// writeSession answers with a service, filling in the settings it inherits from
+// config.json. The review page then shows the values an export would actually
+// use rather than empty boxes.
+func (s *Server) writeSession(w http.ResponseWriter, status int, session *store.Session) {
 	if strings.TrimSpace(session.Church) == "" {
 		session.Church = s.config.Church
 	}
-	writeJSON(w, http.StatusOK, session)
+	if session.GapSeconds == nil {
+		gap := s.config.Master.GapBetweenSegments()
+		session.GapSeconds = &gap
+	}
+	writeJSON(w, status, session)
 }
 
 func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Title  *string `json:"title"`
-		Church *string `json:"church"`
+		Title      *string  `json:"title"`
+		Church     *string  `json:"church"`
+		GapSeconds *float64 `json:"gapSeconds"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -184,6 +196,21 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 			changed = changed || church != session.Church
 			session.Church = church
 		}
+		if request.GapSeconds != nil {
+			gap := *request.GapSeconds
+			if math.IsNaN(gap) || gap < 0 || gap > config.MaximumGapSeconds {
+				return fmt.Errorf("silence between segments must be between 0 and %g seconds", config.MaximumGapSeconds)
+			}
+			gap = math.Round(gap*10) / 10
+			// A service with nothing set of its own is currently exported with
+			// the configured gap, so that is what the change is measured against.
+			previous := s.config.Master.GapBetweenSegments()
+			if session.GapSeconds != nil {
+				previous = *session.GapSeconds
+			}
+			changed = changed || math.Abs(gap-previous) > 1e-9
+			session.GapSeconds = &gap
+		}
 		if changed {
 			markExportStale(session)
 		}
@@ -193,7 +220,7 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 // deleteSession removes a finished service and everything recorded with it:
@@ -247,7 +274,7 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 			log.Printf("waveform for %s: %v", id, err)
 		}
 	}(session.ID)
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +310,7 @@ func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, session)
+	s.writeSession(w, http.StatusCreated, session)
 }
 
 func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +371,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, session)
+	s.writeSession(w, http.StatusCreated, session)
 }
 
 func (s *Server) stopSegment(w http.ResponseWriter, r *http.Request) {
@@ -375,7 +402,7 @@ func (s *Server) stopSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +470,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +502,7 @@ func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
@@ -501,7 +528,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, session)
+	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
@@ -548,7 +575,7 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, session)
+	s.writeSession(w, http.StatusCreated, session)
 }
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {

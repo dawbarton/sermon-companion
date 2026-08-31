@@ -62,6 +62,11 @@
           <tbody id="segments"></tbody>
         </table>
         <details id="removed-panel" class="removed-panel hidden"><summary>Removed segments (<span id="removed-count">0</span>)</summary><div id="removed-segments" class="removed-segments"></div></details>
+        <div class="export-options">
+          <label for="gap-seconds">Silence between segments</label>
+          <input id="gap-seconds" type="number" min="0" max="30" step="0.5" inputmode="decimal">
+          <span>seconds, added to the MP3 only</span>
+        </div>
         <div class="section-head"><h3>Markers</h3></div>
         <div id="markers" class="markers"></div>
         <form id="add-marker" class="add-marker">

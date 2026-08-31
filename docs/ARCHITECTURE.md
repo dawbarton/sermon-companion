@@ -136,7 +136,18 @@ the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
 normalised FLAC. These homogeneous files are concatenated and encoded once with
 LAME. The defaults are `-16 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
-bitrate at quality 5. A service is speech with pauses, so a variable bitrate
+bitrate at quality 5.
+
+`loudnorm` aims at a true peak but does not guarantee one once its 192 kHz
+working audio is resampled, so `alimiter` holds the rendered segment below a
+configured ceiling, `-1 dBFS` by default, with its own auto-levelling disabled
+so that it cannot undo the loudness normalisation. Silence is appended to every
+segment but the last, which spaces the parts in the MP3 without a pause before
+the first or after the last. It is added after the loudness pass, so a gap
+cannot pull the measured level of the speech about, and the length comes from
+the service where the operator has set one and from `mastering.gapSeconds`
+otherwise. Both are export-only: the recording and the reviewed times are
+unchanged. A service is speech with pauses, so a variable bitrate
 spends far less than a constant 128 kbit/s on it without sounding worse.
 
 There is deliberately no crossfade: the exported boundary should match the

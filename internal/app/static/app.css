@@ -100,6 +100,8 @@ audio { width: 100%; margin: 1rem 0; }
 .segment-play { min-width: 4.1rem; padding: .5rem .55rem; font-size: .85rem; }
 .row-actions { display: flex; gap: .35rem; }
 .row-actions .remove { color: #ffb09d; }
+.export-options { display: flex; align-items: center; gap: .55rem; margin-top: .8rem; color: var(--muted); font-size: .85rem; }
+.export-options input { width: 5.5rem; color: var(--text); }
 .removed-panel { margin-top: .8rem; border: 1px solid var(--line); border-radius: .55rem; padding: .65rem .8rem; color: var(--muted); }
 .removed-panel summary { cursor: pointer; }
 .removed-segments { display: grid; gap: .4rem; margin-top: .65rem; }
@@ -126,4 +128,5 @@ audio { width: 100%; margin: 1rem 0; }
   .waveform-toolbar { align-items: flex-start; flex-direction: column; }
   .waveform-viewport { height: 145px; }
   .add-marker { grid-template-columns: 1fr; }
+  .export-options { flex-wrap: wrap; }
 }

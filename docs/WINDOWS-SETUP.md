@@ -85,7 +85,9 @@ NORMAL OPERATION
    a neighbour and cannot overlap. Use Add segment for a missed interval, or
    Remove for an unwanted one. Removed segments can be restored from the panel
    below the table. Untick any part that should remain visible but not be
-   exported.
+   exported. "Silence between segments", below the list, sets the pause left
+   between one part and the next; it starts at two seconds and changes the MP3
+   alone.
 7. Click "Create MP3". Each included part is measured and normalised separately
    before the parts are joined. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File

@@ -8,7 +8,7 @@ const elementIDs = [
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
   "marker-time", "export", "download", "export-status", "error",
   "show-add-segment", "add-segment", "cancel-add-segment", "new-segment-label",
-  "new-segment-start", "new-segment-end", "removed-panel",
+  "new-segment-start", "new-segment-end", "removed-panel", "gap-seconds",
   "removed-count", "removed-segments"
 ];
 const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElementById(id)]));
@@ -145,6 +145,8 @@ function render() {
   renderWaveform();
   const exp = current.export;
   elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
+  if (document.activeElement !== elements["gap-seconds"]) elements["gap-seconds"].value = gapSeconds(current);
+  elements["gap-seconds"].disabled = exp?.status === "running";
   elements.export.disabled = isRecording(current) || exp?.status === "running";
   elements["save-session"].disabled = exp?.status === "running";
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
@@ -162,6 +164,10 @@ function renderSegmentRows() {
   elements["removed-panel"].classList.toggle("hidden", removed.length === 0);
   elements["removed-segments"].replaceChildren(...removed.map(removedSegmentRow));
 }
+
+// A service recorded before the setting existed has no gap of its own and is
+// exported with the configured one, which the server sends with the service.
+function gapSeconds(session) { return session?.gapSeconds ?? 0; }
 
 function activeSegments() { return current?.segments.filter(segment => !segment.archived) || []; }
 
@@ -561,6 +567,23 @@ async function saveSessionDetails() {
     elements.error.textContent = ""; render(); await loadSessions();
   } finally { elements["save-session"].disabled = false; }
 }
+
+// The gap is only used when the MP3 is made, so it saves itself like the
+// segment rows rather than waiting for a button.
+elements["gap-seconds"].addEventListener("change", async () => {
+  const typed = elements["gap-seconds"].value.trim();
+  const seconds = Number(typed);
+  if (typed !== "" && Number.isFinite(seconds)) {
+    try {
+      current = await api(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({gapSeconds: seconds})});
+      elements.error.textContent = "";
+    } catch (error) { showError(error); }
+  }
+  // What is in the box is always what the next MP3 would use, so a rejected or
+  // empty value goes back to the stored one.
+  elements["gap-seconds"].value = gapSeconds(current);
+  render();
+});
 
 elements["show-add-segment"].addEventListener("click", () => {
   const duration = Math.max(current?.durationSeconds || waveform.duration || 0, .1);

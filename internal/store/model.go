@@ -18,8 +18,12 @@ type Session struct {
 	Revision      int64       `json:"revision"`
 	Segments      []Segment   `json:"segments"`
 	Markers       []Marker    `json:"markers"`
-	Export        *ExportInfo `json:"export,omitempty"`
-	Error         string      `json:"error,omitempty"`
+	// GapSeconds is the silence placed between segments when this service is
+	// exported. Nil takes the configured default, so a service recorded before
+	// the setting existed still exports with the operator's usual gap.
+	GapSeconds *float64    `json:"gapSeconds,omitempty"`
+	Export     *ExportInfo `json:"export,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 type CaptureInfo struct {

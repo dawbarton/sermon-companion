@@ -43,6 +43,16 @@ type MasteringConfig struct {
 	IntegratedLUFS float64 `json:"integratedLUFS"`
 	LoudnessRange  float64 `json:"loudnessRangeLU"`
 	TruePeakDB     float64 `json:"truePeakDB"`
+	// PeakLimitDB is the ceiling a limiter holds the finished audio below, in
+	// dBFS, after the loudness normalisation. loudnorm aims at a true-peak
+	// target but does not guarantee it once the result is resampled and encoded,
+	// so the limiter is a backstop against clipping. Pointers distinguish an
+	// omitted setting from a deliberate 0 dBFS.
+	PeakLimitDB *float64 `json:"peakLimitDB"`
+	// GapSeconds is the silence placed between consecutive segments in the MP3
+	// unless a service overrides it. It applies to the export alone; the
+	// recording and the reviewed times are untouched.
+	GapSeconds *float64 `json:"gapSeconds"`
 	// MP3Quality is the LAME variable-bitrate level, 0 for the largest files
 	// and 9 for the smallest. Speech needs far less than a constant 128 kbit/s.
 	MP3Quality *int `json:"mp3Quality"`
@@ -62,12 +72,14 @@ func DefaultConfig() Config {
 		Church:        "Church",
 		Capture:       CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
 		Presets:       []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
-		Master:        MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, MP3Quality: intPointer(5)},
+		Master:        MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, PeakLimitDB: floatPointer(-1), GapSeconds: floatPointer(2), MP3Quality: intPointer(5)},
 		RetentionDays: intPointer(60),
 	}
 }
 
 func intPointer(v int) *int { return &v }
+
+func floatPointer(v float64) *float64 { return &v }
 
 // KeepRecordingsFor reports how long a lossless recording is kept, and whether
 // any retention limit applies at all.
@@ -76,6 +88,33 @@ func (c Config) KeepRecordingsFor() (int, bool) {
 		return 0, false
 	}
 	return *c.RetentionDays, true
+}
+
+// PeakLimitDBFS is the level, in dBFS, that the finished audio is limited to.
+// FFmpeg's alimiter accepts a ceiling no lower than -24 dBFS.
+func (c MasteringConfig) PeakLimitDBFS() float64 {
+	if c.PeakLimitDB == nil {
+		return -1
+	}
+	return min(0, max(-24, *c.PeakLimitDB))
+}
+
+// GapBetweenSegments is the default silence, in seconds, inserted between
+// segments of an exported MP3.
+func (c MasteringConfig) GapBetweenSegments() float64 {
+	if c.GapSeconds == nil {
+		return 2
+	}
+	return ClampGapSeconds(*c.GapSeconds)
+}
+
+// MaximumGapSeconds bounds the silence between segments. Longer than half a
+// minute reads as a fault rather than a pause.
+const MaximumGapSeconds = 30.0
+
+// ClampGapSeconds keeps a requested gap within what is useful for a service.
+func ClampGapSeconds(seconds float64) float64 {
+	return min(MaximumGapSeconds, max(0, seconds))
 }
 
 // MP3QualityLevel is the LAME variable-bitrate level to encode with.
@@ -152,6 +191,12 @@ func applyConfigDefaults(c *Config, d Config) {
 	}
 	if c.Master.TruePeakDB == 0 {
 		c.Master.TruePeakDB = d.Master.TruePeakDB
+	}
+	if c.Master.PeakLimitDB == nil {
+		c.Master.PeakLimitDB = d.Master.PeakLimitDB
+	}
+	if c.Master.GapSeconds == nil {
+		c.Master.GapSeconds = d.Master.GapSeconds
 	}
 	if c.Master.MP3Quality == nil {
 		c.Master.MP3Quality = d.Master.MP3Quality

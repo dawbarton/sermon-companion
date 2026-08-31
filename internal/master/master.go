@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +83,8 @@ func (m *Master) Export(id string) error {
 		return m.fail(id, err)
 	}
 	defer logFile.Close()
-	fmt.Fprintf(logFile, "\n[%s] export started\n", started.Format(time.RFC3339))
+	gap := gapBetweenSegments(m.config.Master, session)
+	fmt.Fprintf(logFile, "\n[%s] export started: %d segments, %g s between them, limited to %g dBFS\n", started.Format(time.RFC3339), len(segments), gap, m.config.Master.PeakLimitDBFS())
 
 	files := make([]string, 0, len(segments))
 	recordingRate := session.Capture.SampleRate
@@ -90,7 +92,13 @@ func (m *Master) Export(id string) error {
 		recordingRate = m.config.Capture.SampleRate
 	}
 	for i, segment := range segments {
-		measurement, output, err := m.normaliseSegment(input, workDir, i, segment, recordingRate, logFile)
+		// The silence goes after every segment but the last, so the MP3 neither
+		// opens nor ends on a pause.
+		pad := gap
+		if i == len(segments)-1 {
+			pad = 0
+		}
+		measurement, output, err := m.normaliseSegment(input, workDir, i, segment, recordingRate, pad, logFile)
 		if err != nil {
 			return m.fail(id, fmt.Errorf("normalise %q: %w", segment.Label, err))
 		}
@@ -133,7 +141,7 @@ func (m *Master) Export(id string) error {
 	return err
 }
 
-func (m *Master) normaliseSegment(input, workDir string, index int, segment store.Segment, recordingRate int, logFile *os.File) (measurement, string, error) {
+func (m *Master) normaliseSegment(input, workDir string, index int, segment store.Segment, recordingRate int, padSeconds float64, logFile *os.File) (measurement, string, error) {
 	if segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
 		return measurement{}, "", errors.New("segment has invalid audio-frame boundaries")
 	}
@@ -153,7 +161,13 @@ func (m *Master) normaliseSegment(input, workDir string, index int, segment stor
 	// loudnorm upsamples internally to 192 kHz for true-peak detection. Resample
 	// explicitly inside the filter graph before handing frames to FLAC; relying
 	// on the output -ar option can leave an invalid encoder block size.
-	filter += ",aresample=" + strconv.Itoa(recordingRate) + ",aformat=sample_fmts=s16,asetnsamples=n=4096:p=0"
+	filter += ",aresample=" + strconv.Itoa(recordingRate) + "," + peakLimiter(m.config.Master)
+	if padSeconds > 0 {
+		// The silence is appended after the loudness pass, so a pause between
+		// segments cannot pull the measured level of the speech about.
+		filter += fmt.Sprintf(",apad=pad_dur=%g", padSeconds)
+	}
+	filter += ",aformat=sample_fmts=s16,asetnsamples=n=4096:p=0"
 	output := filepath.Join(workDir, fmt.Sprintf("segment-%03d.flac", index+1))
 	renderArgs := append(append([]string{}, common...), "-vn", "-af", filter, "-ar", strconv.Itoa(recordingRate), "-c:a", "flac", "-compression_level", "5", output)
 	if err := runLogged(m.config.FFmpeg, renderArgs, "", logFile); err != nil {
@@ -174,6 +188,24 @@ func (m *Master) fail(id string, cause error) error {
 		return nil
 	})
 	return cause
+}
+
+// peakLimiter holds the normalised segment below the configured ceiling.
+// loudnorm aims at a true peak but does not guarantee it once its 192 kHz
+// working audio is resampled, and the MP3 encoder can overshoot again. The
+// limiter's own auto-levelling is switched off: it would raise every segment to
+// the ceiling and undo the loudness normalisation.
+func peakLimiter(c config.MasteringConfig) string {
+	return fmt.Sprintf("alimiter=limit=%.6f:level=0", math.Pow(10, c.PeakLimitDBFS()/20))
+}
+
+// gapBetweenSegments is the silence placed between segments: what the operator
+// set for this service, or the configured default where they set nothing.
+func gapBetweenSegments(c config.MasteringConfig, session *store.Session) float64 {
+	if session.GapSeconds != nil {
+		return config.ClampGapSeconds(*session.GapSeconds)
+	}
+	return c.GapBetweenSegments()
 }
 
 func targetFilter(c config.MasteringConfig) string {
