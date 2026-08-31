@@ -5,7 +5,7 @@
 Sermon Companion is a maintainable, standalone companion for OBS. It continuously
 records a church service as lossless audio, lets an operator mark useful
 segments in an OBS Custom Browser Dock, provides post-service waveform editing
-and auditioning, normalises each included segment independently, and produces a
+and auditioning, levels the included segments together by label, and produces a
 single MP3.
 
 Production deployment targets Windows and an HDMI capture-audio device. The
@@ -94,7 +94,8 @@ ordinary development builds identify themselves as `dev` through `--version`.
   append-only event journal, and segment invariants.
 - `internal/app`: loopback HTTP API and embedded dock/manager UI.
 - `internal/waveform`: cached compact waveform envelope for long recordings.
-- `internal/master`: segment extraction, two-pass normalisation, concatenation,
+- `internal/master`: segment extraction, two-pass normalisation measured per
+  label so that one talk cut into pieces keeps a single volume, concatenation,
   MP3 publication, and export history.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
