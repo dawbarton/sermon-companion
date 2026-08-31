@@ -36,12 +36,10 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .dock .timer { font-size: 1.45rem; font-weight: 700; }
 .dock .start-panel { display: grid; gap: .6rem; }
 .dock .preset-grid { display: grid; gap: .55rem; }
-.dock .preset { min-height: 3.3rem; text-align: left; font-weight: 650; border-left: .35rem solid var(--accent); }
+.dock .preset { text-align: left; font-weight: 650; border-left: .35rem solid var(--accent); }
 .dock .preset small { display: block; margin-top: .15rem; color: var(--muted); font-weight: 400; }
 .dock .actions { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .8rem; }
-.dock .last { margin: .7rem 0 0; font-size: .86rem; color: var(--muted); }
-.dock .capture-health { margin: .35rem 0 0; font-size: .78rem; color: #7ee0b7; }
-.dock .capture-health.warning { color: #ff9b85; font-weight: 700; }
+.dock .capture-health { margin: .7rem 0 0; font-size: .82rem; font-weight: 700; color: #ff9b85; }
 .dock .dock-footer { margin-top: .8rem; }
 .dock .dock-footer button { width: 100%; }
 .dock .error { margin: .7rem 0 0; }
@@ -51,10 +49,14 @@ input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; paddi
 .sidebar { border-right: 1px solid var(--line); padding: 1rem; background: #0d1116; }
 .sidebar h1 { margin: 0 0 1rem; font-size: 1.2rem; }
 .session-list { display: grid; gap: .55rem; }
-.session-card { display: block; width: 100%; text-align: left; border: 1px solid transparent; }
+.session-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; border: 1px solid transparent; border-radius: .55rem; background: var(--panel-2); }
 .session-card.selected { border-color: var(--accent); }
-.session-card strong, .session-card small { display: block; }
-.session-card small { margin-top: .25rem; color: var(--muted); }
+.session-card:hover { filter: brightness(1.12); }
+.session-open { width: 100%; text-align: left; background: transparent; }
+.session-open strong, .session-open small { display: block; overflow-wrap: anywhere; }
+.session-open small { margin-top: .25rem; color: var(--muted); }
+.session-delete { background: transparent; color: var(--muted); padding: .7rem .65rem; }
+.session-delete:hover { color: #ffb09d; }
 .main { padding: 1.3rem; max-width: 1100px; width: 100%; margin: 0 auto; }
 .main-header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .main-header .actions { display: flex; flex-direction: column; align-items: stretch; min-width: 10.5rem; gap: .55rem; }
@@ -95,7 +97,8 @@ audio { width: 100%; margin: 1rem 0; }
 .segment-table th, .segment-table td { padding: .45rem .3rem; border-bottom: 1px solid var(--line); }
 .segment-table input[type="checkbox"] { width: auto; transform: scale(1.2); }
 .segment-table .short { min-width: 7rem; }
-.segment-play { min-width: 4.5rem; }
+.listen-actions { display: flex; gap: .3rem; }
+.segment-play { min-width: 4.1rem; padding: .5rem .55rem; font-size: .85rem; }
 .row-actions { display: flex; gap: .35rem; }
 .row-actions .remove { color: #ffb09d; }
 .removed-panel { margin-top: .8rem; border: 1px solid var(--line); border-radius: .55rem; padding: .65rem .8rem; color: var(--muted); }

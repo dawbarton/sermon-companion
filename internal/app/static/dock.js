@@ -1,6 +1,6 @@
 "use strict";
 const {api, formatTime} = window.SC;
-const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "last", "capture-health", "open-review", "error"].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(["status-dot", "timer", "start-panel", "record-panel", "title", "start", "presets", "marker", "stop", "capture-health", "open-review", "error"].map(id => [id, document.getElementById(id)]));
 let status = {active: false, presets: []};
 // A failed action, such as starting a recording against a missing microphone,
 // stays on screen until the operator tries something else. The status poll
@@ -18,10 +18,12 @@ function render() {
   elements["status-dot"].classList.toggle("live", status.active);
   elements.timer.textContent = formatTime(status.elapsedSeconds || 0);
   if (!status.active) return;
-  const capture = status.capture || {};
-  const format = capture.sampleRate ? `${capture.sampleRate/1000} kHz · ${capture.channels} channel${capture.channels === 1 ? "" : "s"}` : "Preparing audio";
-  elements["capture-health"].textContent = capture.droppedFrames ? `Recording problem: ${capture.droppedFrames} audio frames were lost.` : `${format} · recording healthy`;
-  elements["capture-health"].classList.toggle("warning", !!capture.droppedFrames);
+  // The dock is a narrow panel inside OBS, so it says nothing while the
+  // recording is healthy: the running timer is the sign of that. Only a fault
+  // takes up a line.
+  const dropped = status.capture?.droppedFrames || 0;
+  elements["capture-health"].textContent = dropped ? `Recording problem: ${dropped} audio frames were lost.` : "";
+  elements["capture-health"].classList.toggle("hidden", !dropped);
   const open = status.session?.segments?.find(segment => !segment.archived && segment.endSeconds == null);
   elements.presets.replaceChildren(...status.presets.map(preset => {
     const button = document.createElement("button");
@@ -29,12 +31,27 @@ function render() {
     button.className = `preset${isOpen ? " active" : ""}`;
     const label = document.createElement("span");
     label.textContent = isOpen ? `End ${preset.label}` : `Start ${preset.label}`;
-    const note = document.createElement("small");
-    note.textContent = isOpen ? `Started at ${formatTime(open.startSeconds, true)}` : open ? `This will end ${open.label}` : "Mark this part of the service";
-    button.append(label, note);
+    // A second line appears only when it says something the label does not, so
+    // idle buttons stay one line high.
+    const note = isOpen ? `Started at ${formatTime(open.startSeconds, true)}` : open ? `This will end ${open.label}` : "";
+    button.append(label);
+    if (note) {
+      const detail = document.createElement("small");
+      detail.textContent = note;
+      button.append(detail);
+    }
     button.addEventListener("click", () => isOpen ? stopSegment(open.id) : startSegment(preset));
     return button;
   }));
+}
+
+// Says on a button that its action happened, then puts the button back.
+function flash(button, text, milliseconds = 1800) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  button.textContent = text;
+  clearTimeout(Number(button.dataset.flash));
+  button.dataset.flash = String(setTimeout(() => { button.textContent = original; }, milliseconds));
 }
 
 async function refresh() {
@@ -60,7 +77,6 @@ async function startSegment(preset) {
   try {
     clearError();
     status.session = await api(`/api/sessions/${status.session.id}/segments`, {method: "POST", body: JSON.stringify(preset)});
-    elements.last.textContent = `${preset.label} started. The complete audio is still being kept.`;
     render();
   } catch (error) { showError(error); }
 }
@@ -69,7 +85,6 @@ async function stopSegment(id) {
   try {
     clearError();
     status.session = await api(`/api/sessions/${status.session.id}/segments/${id}/stop`, {method: "POST", body: "{}"});
-    elements.last.textContent = "Segment ended. The complete audio is still being kept.";
     render();
   } catch (error) { showError(error); }
 }
@@ -78,7 +93,9 @@ elements.marker.addEventListener("click", async () => {
   try {
     clearError();
     status.session = await api(`/api/sessions/${status.session.id}/markers`, {method: "POST", body: JSON.stringify({kind: "note", label: "Operator marker"})});
-    elements.last.textContent = `Marker added at ${formatTime(status.elapsedSeconds, true)}.`;
+    // Confirmation goes on the button itself, so acknowledging a marker costs
+    // the dock no height.
+    flash(elements.marker, `Marked ${formatTime(status.elapsedSeconds)}`);
   } catch (error) { showError(error); }
 });
 

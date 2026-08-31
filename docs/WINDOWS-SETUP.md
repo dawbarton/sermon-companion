@@ -78,16 +78,22 @@ NORMAL OPERATION
 6. Click "Open review page" in the dock, or open http://127.0.0.1:8765/ in a
    browser. Check and, if necessary, edit the
    service title and church, then click "Save details". Each segment has its own
-   Play and Stop button. For coarse adjustments, drag a segment or either of its
-   edges on the waveform. Use Zoom and Pan, or enter exact start and end times,
-   for fine adjustments. Segments stop when they meet a neighbour and cannot
-   overlap. Use Add segment for a missed interval, or Remove for an unwanted one.
-   Removed segments can be restored from the panel below the table. Untick any
-   part that should remain visible but not be exported.
+   Play button, with First 5s and Last 5s for checking where it begins and ends.
+   For coarse adjustments, drag a segment or either of its edges on the waveform.
+   Use Zoom and Pan, or enter exact start and end times, for fine adjustments.
+   Every change to a segment is saved as it is made. Segments stop when they meet
+   a neighbour and cannot overlap. Use Add segment for a missed interval, or
+   Remove for an unwanted one. Removed segments can be restored from the panel
+   below the table. Untick any part that should remain visible but not be
+   exported.
 7. Click "Create MP3". Each included part is measured and normalised separately
    before the parts are joined. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
    Explorer, or download it through the browser.
+
+A finished service can be deleted with the ✕ beside it in the list on the
+left, which removes its recording and its MP3s from the computer for good. A
+service still recording cannot be deleted.
 
 The complete FLAC remains available if an operator makes a mistake. Creating a
 new MP3 never changes it. Recreating an MP3 keeps the requested simple filename;

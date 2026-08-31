@@ -15,11 +15,14 @@ const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElemen
 
 let current = null;
 let sessions = [];
-let playingSegmentID = null;
+let playing = null;
 let waveform = emptyWaveform();
 let dragState = null;
 let audioSource = null;
 let playbackToken = 0;
+// Enough of a segment to hear whether its edge is in the right place, without
+// waiting through the middle of a sermon to reach the end.
+const previewSeconds = 5;
 
 function emptyWaveform() {
   return {sessionID: null, peaks: null, pointsPerSecond: 20, duration: 0, viewStart: 0, viewEnd: 1, loading: false};
@@ -28,14 +31,46 @@ function emptyWaveform() {
 async function loadSessions() {
   try {
     sessions = await api("/api/sessions");
-    elements["session-list"].replaceChildren(...sessions.map(session => {
-      const button = document.createElement("button");
-      button.className = `session-card${current?.id === session.id ? " selected" : ""}`;
-      const title = document.createElement("strong"); title.textContent = session.title;
-      const meta = document.createElement("small"); meta.textContent = `${new Date(session.startedAt).toLocaleDateString()} · ${session.status}`;
-      button.append(title, meta); button.addEventListener("click", () => selectSession(session.id)); return button;
-    }));
+    elements["session-list"].replaceChildren(...sessions.map(sessionCard));
     if (!current && sessions.length) await selectSession(sessions[0].id);
+  } catch (error) { showError(error); }
+}
+
+function sessionCard(session) {
+  const card = document.createElement("div");
+  card.className = `session-card${current?.id === session.id ? " selected" : ""}`;
+  const open = document.createElement("button");
+  open.className = "session-open";
+  const title = document.createElement("strong"); title.textContent = session.title;
+  const meta = document.createElement("small"); meta.textContent = `${new Date(session.startedAt).toLocaleDateString()} · ${session.status}`;
+  open.append(title, meta);
+  open.addEventListener("click", () => selectSession(session.id));
+  const remove = document.createElement("button");
+  remove.className = "session-delete";
+  remove.textContent = "✕";
+  remove.title = `Delete ${session.title}`;
+  remove.setAttribute("aria-label", remove.title);
+  remove.addEventListener("click", () => deleteSession(session));
+  card.append(open, remove);
+  return card;
+}
+
+// Deleting takes the recording, the marks, and every MP3 made from them, and
+// this computer holds the only copy, so the service is named in the question
+// and the answer is not remembered for the next one.
+async function deleteSession(session) {
+  const when = new Date(session.startedAt).toLocaleDateString();
+  if (!confirm(`Delete "${session.title}" from ${when}? Its recording and MP3s are removed from this computer and cannot be recovered.`)) return;
+  try {
+    await api(`/api/sessions/${session.id}`, {method: "DELETE"});
+    if (current?.id === session.id) {
+      stopSegmentPlayback();
+      current = null;
+      waveform = emptyWaveform();
+      render();
+    }
+    elements.error.textContent = "";
+    await loadSessions();
   } catch (error) { showError(error); }
 }
 
@@ -117,7 +152,11 @@ function render() {
 }
 
 function renderSegmentRows() {
+  // Rows are rebuilt whenever anything changes, including while a time is being
+  // typed into one of them, so where the operator was working is put back.
+  const focus = focusedRowControl();
   elements.segments.replaceChildren(...activeSegments().sort((a,b) => a.startSeconds-b.startSeconds).map(segmentRow));
+  restoreRowFocus(focus);
   const removed = current.segments.filter(segment => segment.archived).sort((a,b) => a.startSeconds-b.startSeconds);
   elements["removed-count"].textContent = removed.length;
   elements["removed-panel"].classList.toggle("hidden", removed.length === 0);
@@ -126,32 +165,82 @@ function renderSegmentRows() {
 
 function activeSegments() { return current?.segments.filter(segment => !segment.archived) || []; }
 
+function focusedRowControl() {
+  const active = document.activeElement;
+  const row = active?.closest?.("tr[data-segment-id]");
+  if (!row || !elements.segments.contains(row) || !active.dataset.field) return null;
+  return {segmentID: row.dataset.segmentId, field: active.dataset.field, start: active.selectionStart, end: active.selectionEnd};
+}
+
+function restoreRowFocus(focus) {
+  if (!focus) return;
+  const control = elements.segments.querySelector(`tr[data-segment-id="${CSS.escape(focus.segmentID)}"] [data-field="${focus.field}"]`);
+  if (!control) return;
+  control.focus();
+  if (focus.start != null && control.setSelectionRange) control.setSelectionRange(focus.start, focus.end);
+}
+
 function segmentRow(segment) {
   const row = document.createElement("tr");
   row.dataset.segmentId = segment.id;
-  const play = document.createElement("button");
-  play.className = "segment-play";
-  play.textContent = playingSegmentID === segment.id ? "Stop" : "Play";
-  play.disabled = segment.endSeconds == null;
-  play.addEventListener("click", () => toggleSegmentPlayback(segment));
-  const include = document.createElement("input"); include.type = "checkbox"; include.checked = segment.include;
-  const label = document.createElement("input"); label.value = segment.label;
+  const listen = document.createElement("div"); listen.className = "listen-actions";
+  listen.append(playButton(segment, "whole", "Play"), playButton(segment, "head", "First 5s"), playButton(segment, "tail", "Last 5s"));
+  const include = document.createElement("input"); include.type = "checkbox"; include.checked = segment.include; include.dataset.field = "include";
+  const label = document.createElement("input"); label.value = segment.label; label.dataset.field = "label";
   const start = document.createElement("input"); start.value = formatTime(segment.startSeconds, true); start.className = "short"; start.dataset.field = "start";
   const end = document.createElement("input"); end.value = segment.endSeconds == null ? "" : formatTime(segment.endSeconds, true); end.className = "short"; end.dataset.field = "end";
-  const save = document.createElement("button"); save.textContent = "Save";
-  save.addEventListener("click", async () => {
-    save.disabled = true;
-    try {
-      current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include: include.checked, label: label.value, startSeconds: parseTime(start.value), endSeconds: parseTime(end.value)})});
-      elements.error.textContent = ""; render();
-    } catch (error) { showError(error); }
-    finally { save.disabled = false; }
-  });
+  for (const control of [include, label, start, end]) control.addEventListener("change", () => saveSegmentRow(segment, row));
   const remove = document.createElement("button"); remove.textContent = "Remove"; remove.className = "remove";
   remove.addEventListener("click", () => removeSegment(segment));
-  const actions = document.createElement("div"); actions.className = "row-actions"; actions.append(save, remove);
-  for (const control of [play, include, label, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
+  const actions = document.createElement("div"); actions.className = "row-actions"; actions.append(remove);
+  for (const control of [listen, include, label, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
   return row;
+}
+
+function playButton(segment, part, text) {
+  const button = document.createElement("button");
+  button.className = "segment-play";
+  button.dataset.field = `play-${part}`;
+  button.textContent = playing?.segmentID === segment.id && playing.part === part ? "Stop" : text;
+  button.disabled = segment.endSeconds == null;
+  button.title = part === "head" ? `Play where ${segment.label} starts` : part === "tail" ? `Play where ${segment.label} ends` : `Play the whole of ${segment.label}`;
+  button.addEventListener("click", () => toggleSegmentPlayback(segment, part));
+  return button;
+}
+
+// A segment shorter than the preview is played whole rather than twice over.
+function partOfSegment(segment, part) {
+  const {startSeconds: from, endSeconds: to} = segment;
+  if (part === "head") return {from, to: Math.min(to, from+previewSeconds)};
+  if (part === "tail") return {from: Math.max(from, to-previewSeconds), to};
+  return {from, to};
+}
+
+// Typed changes are saved when the box is left, in the same way that a segment
+// dragged along the waveform saves itself. Nothing is left for the operator to
+// remember to press.
+async function saveSegmentRow(segment, row) {
+  const field = name => row.querySelector(`[data-field="${name}"]`);
+  let startSeconds, endSeconds;
+  try {
+    startSeconds = parseTime(field("start").value);
+    endSeconds = parseTime(field("end").value);
+  } catch (error) {
+    // A time that cannot be read is put back to the stored one, so it cannot
+    // sit there rejecting every later change to the same segment.
+    showError(error); render(); return;
+  }
+  const include = field("include").checked, label = field("label").value.trim();
+  const unchanged = include === segment.include && label === segment.label &&
+    Math.abs(startSeconds-segment.startSeconds) < .05 && Math.abs(endSeconds-segment.endSeconds) < .05;
+  if (unchanged) return;
+  try {
+    current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include, label, startSeconds, endSeconds})});
+    elements.error.textContent = "";
+  } catch (error) { showError(error); }
+  // A rejected change is redrawn from the stored segment, so what is on screen
+  // is always what would go into the MP3.
+  render();
 }
 
 function removedSegmentRow(segment) {
@@ -163,7 +252,7 @@ function removedSegmentRow(segment) {
 }
 
 async function removeSegment(segment) {
-  if (playingSegmentID === segment.id) stopSegmentPlayback();
+  if (playing?.segmentID === segment.id) stopSegmentPlayback();
   try {
     current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "DELETE"});
     elements.error.textContent = ""; render();
@@ -177,22 +266,23 @@ async function restoreSegment(segment) {
   } catch (error) { showError(error); }
 }
 
-async function toggleSegmentPlayback(segment) {
-  if (playingSegmentID === segment.id) {
+async function toggleSegmentPlayback(segment, part) {
+  if (playing?.segmentID === segment.id && playing.part === part) {
     stopSegmentPlayback();
     return;
   }
   stopSegmentPlayback();
-  playingSegmentID = segment.id;
+  const {from, to} = partOfSegment(segment, part);
+  playing = {segmentID: segment.id, part, from, to};
   const token = playbackToken;
   renderSegmentRows();
   renderPlayhead();
   try {
-    await seekTo(segment.startSeconds);
+    await seekTo(from);
     if (token !== playbackToken) return;
     await elements.audio.play();
   }
-  catch (error) { playingSegmentID = null; renderSegmentRows(); showError(error); }
+  catch (error) { playing = null; renderSegmentRows(); showError(error); }
 }
 
 // A recording carries no FLAC seek table, so the first seek into a part of the
@@ -224,14 +314,10 @@ function stopSegmentPlayback() {
   // Abandons a seek that has not reached playback yet, so it cannot start the
   // audio after the operator has moved on.
   playbackToken++;
-  if (playingSegmentID == null) return;
-  playingSegmentID = null;
+  if (playing == null) return;
+  playing = null;
   elements.audio.pause();
   if (current) renderSegmentRows();
-}
-
-function playingSegment() {
-  return activeSegments().find(segment => segment.id === playingSegmentID) || null;
 }
 
 function markerRow(marker) {
@@ -427,14 +513,14 @@ function renderPlayhead() {
 function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
 
 elements.audio.addEventListener("timeupdate", () => {
-  const segment = playingSegment();
-  if (segment?.endSeconds != null && elements.audio.currentTime >= segment.endSeconds) {
-    elements.audio.pause(); elements.audio.currentTime = segment.endSeconds; playingSegmentID = null; renderSegmentRows();
+  if (playing && elements.audio.currentTime >= playing.to) {
+    elements.audio.pause(); elements.audio.currentTime = playing.to; playing = null; renderSegmentRows();
   }
   renderPlayhead();
 });
 elements.audio.addEventListener("pause", () => {
-  if (playingSegmentID != null && (!playingSegment() || elements.audio.currentTime < playingSegment().endSeconds-.05)) { playingSegmentID = null; renderSegmentRows(); }
+  // Covers the player's own controls: pausing there stops the preview too.
+  if (playing && elements.audio.currentTime < playing.to-.05) { playing = null; renderSegmentRows(); }
 });
 elements.audio.addEventListener("ended", stopSegmentPlayback);
 elements["waveform-viewport"].addEventListener("click", seekFromPointer);

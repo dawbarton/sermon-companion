@@ -48,7 +48,7 @@
         <p id="error" class="error"></p>
         <div class="section-head">
           <h3>Segments</h3>
-          <div class="section-actions"><span class="muted">Each included segment is normalised separately.</span><button id="show-add-segment">Add segment</button></div>
+          <div class="section-actions"><span class="muted">Changes save themselves. Each included segment is normalised separately.</span><button id="show-add-segment">Add segment</button></div>
         </div>
         <form id="add-segment" class="segment-add-form card hidden">
           <label>Label <input id="new-segment-label" placeholder="Notices" required></label>
@@ -58,7 +58,7 @@
           <p class="muted">Tip: click the waveform first to use that position as the initial start time.</p>
         </form>
         <table class="segment-table">
-          <thead><tr><th>Listen</th><th>Use</th><th>Label</th><th>Start</th><th>End</th><th></th></tr></thead>
+          <thead><tr><th>Listen</th><th title="Include this part in the MP3">Use</th><th>Label</th><th>Start</th><th>End</th><th></th></tr></thead>
           <tbody id="segments"></tbody>
         </table>
         <details id="removed-panel" class="removed-panel hidden"><summary>Removed segments (<span id="removed-count">0</span>)</summary><div id="removed-segments" class="removed-segments"></div></details>

@@ -66,8 +66,10 @@ Choose the service in the list on the left. Then:
 - Drag a marked part along the waveform to move it, or drag either edge to
   change where it starts or ends. Zoom in first for fine adjustments. Parts can
   touch but cannot overlap.
-- Press **Play** beside a part to hear just that part, or type exact times into
-  the Start and End boxes and press **Save**.
+- Press **Play** beside a part to hear it, or **First 5s** and **Last 5s** to
+  hear only where it begins and ends while adjusting those points.
+- Exact times can be typed into the Start and End boxes. Every change to a part
+  is saved as it is made, so there is nothing to press afterwards.
 - Add a part that was missed, or remove one that is not wanted. Removing is
   reversible: removed parts stay listed and can be restored.
 - Untick **Use** to keep a part in the record but leave it out of the MP3.
@@ -89,6 +91,9 @@ Recordings and settings live outside the application folder, in:
 Each service has its own folder there, holding the lossless recording, the
 marks, and the MP3s made from it. Replacing the application folder with a newer
 release does not touch any of it.
+
+A service can be deleted with the ✕ beside it in the list. That removes its
+recording, its marks, and its MP3s from this computer for good.
 
 Recordings are large, roughly 500 MB for a service. When it starts, the
 application deletes every service older than 60 days, including its MP3s. The

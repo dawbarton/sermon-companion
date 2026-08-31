@@ -51,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions", s.startSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
@@ -193,6 +194,37 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
+}
+
+// deleteSession removes a finished service and everything recorded with it:
+// the audio, the journal, and every MP3 made from it. Retention does the same
+// thing on a timer, and the operator clearing out services already published to
+// the church website is the same act done sooner.
+func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	session, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	activeID, _, _, active := s.capture.Active()
+	if (active && activeID == id) || session.Status == "recording" || session.Status == "starting" {
+		writeError(w, http.StatusConflict, errors.New("stop the recording before deleting this service"))
+		return
+	}
+	s.jobsMu.Lock()
+	exporting := s.jobs[id]
+	s.jobsMu.Unlock()
+	if exporting {
+		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to finish before deleting this service"))
+		return
+	}
+	if err := s.store.Delete(id); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	log.Printf("deleted service %s (%s) at the operator's request", id, session.Title)
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
 }
 
 func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
