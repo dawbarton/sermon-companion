@@ -115,7 +115,7 @@ are:
 | `capture.deviceId` | Recording device. Run `SermonCompanion.exe --list-devices` to see the available devices and their identifiers. |
 | `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
-| `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. `-16` suits speech played on a phone or laptop. |
+| `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. The default, `-19`, follows the Apple Podcasts recommendation for spoken word. |
 | `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |

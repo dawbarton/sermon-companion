@@ -135,7 +135,7 @@ its exact start and end sample before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
 loudness, loudness range, and true-peak targets. The second pass renders a
 normalised FLAC. These homogeneous files are concatenated and encoded once with
-LAME. The defaults are `-16 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
+LAME. The defaults are `-19 LUFS`, `11 LU`, `-1.5 dBTP`, and LAME variable
 bitrate at quality 5.
 
 `loudnorm` aims at a true peak but does not guarantee one once its 192 kHz

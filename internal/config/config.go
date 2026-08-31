@@ -72,7 +72,7 @@ func DefaultConfig() Config {
 		Church:        "Church",
 		Capture:       CaptureConfig{Backend: "miniaudio", Driver: driver, Device: device, SampleRate: 48000, Channels: 2, PeriodMS: 20, BufferSecs: 10},
 		Presets:       []Preset{{Kind: "reading", Label: "Reading"}, {Kind: "sermon", Label: "Sermon"}, {Kind: "questions", Label: "Q&A"}},
-		Master:        MasteringConfig{IntegratedLUFS: -16, LoudnessRange: 11, TruePeakDB: -1.5, PeakLimitDB: floatPointer(-1), GapSeconds: floatPointer(2), MP3Quality: intPointer(5)},
+		Master:        MasteringConfig{IntegratedLUFS: -19, LoudnessRange: 11, TruePeakDB: -1.5, PeakLimitDB: floatPointer(-1), GapSeconds: floatPointer(2), MP3Quality: intPointer(5)},
 		RetentionDays: intPointer(60),
 	}
 }
