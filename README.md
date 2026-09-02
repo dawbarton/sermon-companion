@@ -167,3 +167,7 @@ rejects a mismatched or malformed tag, runs the tests with native capture
 enabled, embeds the version in the executable, and creates the GitHub release.
 Release builds report their version with `SermonCompanion.exe --version`, and
 development builds report `dev`.
+
+## Licence
+
+Sermon Companion is released under the MIT Licence; see [LICENSE](LICENSE).
