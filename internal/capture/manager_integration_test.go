@@ -27,7 +27,7 @@ func TestSyntheticCaptureStartsAndStopsCleanly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := New(c, sessions)
+	manager := New(config.NewSettings("", c), sessions)
 	session, err := manager.Start("Integration test")
 	if err != nil {
 		t.Fatal(err)

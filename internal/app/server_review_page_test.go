@@ -19,7 +19,8 @@ func TestOpenReviewPageUsesTheLoopbackAddress(t *testing.T) {
 	}
 	c := config.DefaultConfig()
 	c.Listen = ":8765"
-	server := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles)
+	settings := config.NewSettings("", c)
+	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
 	opened := ""
 	server.openLink = func(url string) error { opened = url; return nil }
 

@@ -31,7 +31,8 @@ func TestSilenceBetweenSegmentsFallsBackToTheConfiguredDefault(t *testing.T) {
 	c := config.DefaultConfig()
 	gap := 4.0
 	c.Master.GapSeconds = &gap
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	path := "/api/sessions/" + session.ID
 
 	// A service recorded before the setting existed has no gap of its own, so

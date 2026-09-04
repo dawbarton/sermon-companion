@@ -37,7 +37,8 @@ func TestStoppingASessionBuildsTheWaveform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 
 	started := requestSession(t, handler, http.MethodPost, "/api/sessions", `{"title":"Waveform test"}`)
 	time.Sleep(400 * time.Millisecond)

@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/dawbarton/sermon-companion/internal/applog"
 	"github.com/dawbarton/sermon-companion/internal/capture"
 	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/master"
@@ -28,7 +29,7 @@ import (
 )
 
 type Server struct {
-	config     config.Config
+	settings   *config.Settings
 	store      *store.Store
 	capture    *capture.Manager
 	master     *master.Master
@@ -36,13 +37,18 @@ type Server struct {
 	static     fs.FS
 	openFolder func(string) error
 	openLink   func(string) error
+	log        *applog.Log
 	jobsMu     sync.Mutex
 	jobs       map[string]bool
 }
 
-func NewServer(c config.Config, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
-	return &Server{config: c, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(c.FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
+func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
+	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
 }
+
+// SetLog gives the interface the running log to display. It is optional: the
+// tests construct a server without one.
+func (s *Server) SetLog(l *applog.Log) { s.log = l }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -66,10 +72,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/export-file", s.exportFile)
 	mux.HandleFunc("POST /api/sessions/{id}/open-export-folder", s.openExportFolder)
 	mux.HandleFunc("POST /api/open-review-page", s.openReviewPage)
+	mux.HandleFunc("GET /api/devices", s.listDevices)
+	mux.HandleFunc("POST /api/devices", s.selectDevice)
+	mux.HandleFunc("GET /api/log", s.readLog)
+	mux.HandleFunc("POST /api/open-log-folder", s.openLogFolder)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.events)
 	assets, _ := fs.Sub(s.static, "static")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
 	mux.HandleFunc("GET /dock", s.page("dock.html"))
+	mux.HandleFunc("GET /log", s.page("log.html"))
 	mux.HandleFunc("GET /", s.page("index.html"))
 	return s.localOnlyHeaders(mux)
 }
@@ -85,7 +96,7 @@ func (s *Server) localOnlyHeaders(next http.Handler) http.Handler {
 
 func (s *Server) page(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/dock" {
+		if r.URL.Path != "/" && r.URL.Path != "/dock" && r.URL.Path != "/log" {
 			http.NotFound(w, r)
 			return
 		}
@@ -108,7 +119,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 			session.Capture = captureInfo
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": position.Seconds, "framePosition": position.Frames, "capture": captureInfo, "session": session, "presets": s.config.Presets})
+	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": position.Seconds, "framePosition": position.Frames, "capture": captureInfo, "session": session, "presets": s.settings.Get().Presets})
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
@@ -149,11 +160,12 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 // config.json. The review page then shows the values an export would actually
 // use rather than empty boxes.
 func (s *Server) writeSession(w http.ResponseWriter, status int, session *store.Session) {
+	c := s.settings.Get()
 	if strings.TrimSpace(session.Church) == "" {
-		session.Church = s.config.Church
+		session.Church = c.Church
 	}
 	if session.GapSeconds == nil {
-		gap := s.config.Master.GapBetweenSegments()
+		gap := c.Master.GapBetweenSegments()
 		session.GapSeconds = &gap
 	}
 	writeJSON(w, status, session)
@@ -204,7 +216,7 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 			gap = math.Round(gap*10) / 10
 			// A service with nothing set of its own is currently exported with
 			// the configured gap, so that is what the change is measured against.
-			previous := s.config.Master.GapBetweenSegments()
+			previous := s.settings.Get().Master.GapBetweenSegments()
 			if session.GapSeconds != nil {
 				previous = *session.GapSeconds
 			}
@@ -343,7 +355,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	rate := sessionSampleRate(existing, s.config.Capture.SampleRate)
+	rate := sessionSampleRate(existing, s.settings.Get().Capture.SampleRate)
 	now := time.Now().UTC()
 	end := request.End
 	startFrame, endFrame := secondsToFrame(request.Start, rate), secondsToFrame(request.End, rate)
@@ -360,7 +372,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		session.Segments = append(session.Segments, segment)
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.config.Capture.SampleRate)
+		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -442,11 +454,11 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if request.Start != nil {
 			segment.Start = *request.Start
-			segment.StartFrame = secondsToFrame(*request.Start, sessionSampleRate(session, s.config.Capture.SampleRate))
+			segment.StartFrame = secondsToFrame(*request.Start, sessionSampleRate(session, s.settings.Get().Capture.SampleRate))
 		}
 		if request.End != nil {
 			segment.End = floatPointer(*request.End)
-			segment.EndFrame = uint64Pointer(secondsToFrame(*request.End, sessionSampleRate(session, s.config.Capture.SampleRate)))
+			segment.EndFrame = uint64Pointer(secondsToFrame(*request.End, sessionSampleRate(session, s.settings.Get().Capture.SampleRate)))
 		}
 		if request.Include != nil {
 			segment.Include = *request.Include
@@ -458,7 +470,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.config.Capture.SampleRate)
+		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -517,7 +529,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.config.Capture.SampleRate)
+		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -557,7 +569,7 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, errors.New("session not found"))
 			return
 		}
-		atFrame = secondsToFrame(*at, sessionSampleRate(session, s.config.Capture.SampleRate))
+		atFrame = secondsToFrame(*at, sessionSampleRate(session, s.settings.Get().Capture.SampleRate))
 	}
 	if *at < 0 {
 		writeError(w, http.StatusBadRequest, errors.New("marker time cannot be negative"))
@@ -673,7 +685,7 @@ func (s *Server) openExportFolder(w http.ResponseWriter, r *http.Request) {
 // openReviewPage exists because the dock runs inside OBS's embedded browser,
 // where an ordinary link would open in the dock panel itself.
 func (s *Server) openReviewPage(w http.ResponseWriter, _ *http.Request) {
-	url := LocalURL(s.config.Listen)
+	url := LocalURL(s.settings.Get().Listen)
 	if err := s.openLink(url); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("open the review page: %w", err))
 		return

@@ -17,10 +17,10 @@ import (
 )
 
 type Manager struct {
-	config config.Config
-	store  *store.Store
-	mu     sync.Mutex
-	run    *running
+	settings *config.Settings
+	store    *store.Store
+	mu       sync.Mutex
+	run      *running
 }
 
 type running struct {
@@ -32,24 +32,29 @@ type running struct {
 	finished chan struct{}
 }
 
-func New(config config.Config, sessions *store.Store) *Manager {
-	return &Manager{config: config, store: sessions}
+func New(settings *config.Settings, sessions *store.Store) *Manager {
+	return &Manager{settings: settings, store: sessions}
 }
+
+// Settings exposes the live configuration so that a caller can read the chosen
+// capture device without keeping a stale copy of its own.
+func (m *Manager) Settings() *config.Settings { return m.settings }
 
 func (m *Manager) RecoverInterrupted() error {
 	sessions, err := m.store.List()
 	if err != nil {
 		return err
 	}
+	c := m.settings.Get()
 	for index := range sessions {
 		session := &sessions[index]
 		if session.Status == "recording" || session.Status == "starting" {
 			dir, _ := m.store.SessionDir(session.ID)
 			duration := session.Duration
-			if measured, probeErr := probeDuration(m.config.FFprobe, filepath.Join(dir, session.AudioFile)); probeErr == nil {
+			if measured, probeErr := probeDuration(c.FFprobe, filepath.Join(dir, session.AudioFile)); probeErr == nil {
 				duration = measured
 			}
-			rate := sampleRate(session, m.config.Capture.SampleRate)
+			rate := sampleRate(session, c.Capture.SampleRate)
 			frames := uint64(duration*float64(rate) + 0.5)
 			ended := time.Now().UTC()
 			_, updateErr := m.store.Update(session.ID, "capture.recovered_after_interruption", map[string]any{"durationSeconds": duration, "totalFrames": frames}, func(s *store.Session) error {
@@ -82,7 +87,7 @@ func (m *Manager) RecoverInterrupted() error {
 // exports are published to the church website, so nothing here is the copy of
 // record. Each deletion is logged, since the session's own journal goes with it.
 func (m *Manager) ApplyRetention(now time.Time) ([]string, error) {
-	days, limited := m.config.KeepRecordingsFor()
+	days, limited := m.settings.Get().KeepRecordingsFor()
 	if !limited {
 		return nil, nil
 	}
@@ -118,7 +123,10 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 	if m.run != nil {
 		return nil, errors.New("a recording is already in progress")
 	}
-	session, err := m.store.Create(title, m.config.Church, time.Now())
+	// One snapshot for the whole start-up, so a device chosen in the dock while
+	// the recording is being set up cannot be applied halfway through it.
+	c := m.settings.Get()
+	session, err := m.store.Create(title, c.Church, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -129,10 +137,10 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 		return nil, err
 	}
 	var active activeCapture
-	if strings.EqualFold(m.config.Capture.Backend, "miniaudio") {
-		active, err = startMiniaudioCapture(m.config, partPath, logFile)
+	if strings.EqualFold(c.Capture.Backend, "miniaudio") {
+		active, err = startMiniaudioCapture(c, partPath, logFile)
 	} else {
-		active, err = startFFmpegCapture(m.config, partPath, logFile)
+		active, err = startFFmpegCapture(c, partPath, logFile)
 	}
 	if err != nil {
 		logFile.Close()

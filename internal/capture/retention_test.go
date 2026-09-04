@@ -45,7 +45,7 @@ func TestApplyRetentionDeletesOnlyExpiredServices(t *testing.T) {
 	recent := recordedSession(t, sessions, "Recent service", now.AddDate(0, 0, -5))
 
 	c := config.DefaultConfig()
-	deleted, err := New(c, sessions).ApplyRetention(now)
+	deleted, err := New(config.NewSettings("", c), sessions).ApplyRetention(now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestApplyRetentionDeletesOnlyExpiredServices(t *testing.T) {
 		}
 	}
 
-	again, err := New(c, sessions).ApplyRetention(now)
+	again, err := New(config.NewSettings("", c), sessions).ApplyRetention(now)
 	if err != nil || len(again) != 0 {
 		t.Fatalf("second pass deleted %v: %v", again, err)
 	}
@@ -83,7 +83,7 @@ func TestApplyRetentionKeepsEveryServiceWhenDisabled(t *testing.T) {
 	session := recordedSession(t, sessions, "Ancient service", now.AddDate(-2, 0, 0))
 	c := config.DefaultConfig()
 	c.RetentionDays = nil
-	deleted, err := New(c, sessions).ApplyRetention(now)
+	deleted, err := New(config.NewSettings("", c), sessions).ApplyRetention(now)
 	if err != nil || len(deleted) != 0 {
 		t.Fatalf("deleted %v with retention disabled: %v", deleted, err)
 	}

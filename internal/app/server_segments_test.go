@@ -33,7 +33,8 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := config.DefaultConfig()
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 
 	created := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Notices","startSeconds":30,"endSeconds":45}`)
 	if len(created.Segments) != 1 || created.Segments[0].Label != "Notices" || created.Segments[0].Kind != "notices" || !created.Segments[0].Include {
@@ -83,7 +84,8 @@ func TestSessionMetadataAndOpenExportFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := config.DefaultConfig()
-	server := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles)
+	settings := config.NewSettings("", c)
+	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
 	opened := ""
 	server.openFolder = func(path string) error { opened = path; return nil }
 	handler := server.Handler()
@@ -130,7 +132,8 @@ func TestManualSegmentValidatesRecordingBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := config.DefaultConfig()
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", strings.NewReader(`{"label":"Invalid","startSeconds":10,"endSeconds":30}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -154,7 +157,8 @@ func TestSegmentAPIRejectsOverlapsAndAllowsTouchingBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := config.DefaultConfig()
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"First","startSeconds":10,"endSeconds":20}`)
 	second := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Second","startSeconds":30,"endSeconds":40}`)
 	secondID := second.Segments[1].ID

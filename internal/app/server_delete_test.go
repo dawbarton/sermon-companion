@@ -23,7 +23,8 @@ func TestDeletingAServiceRemovesItsFolderAndRefusesWhileRecording(t *testing.T) 
 		t.Fatal(err)
 	}
 	c := config.DefaultConfig()
-	handler := NewServer(c, sessions, capture.New(c, sessions), master.New(c, sessions), StaticFiles).Handler()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	dir, err := sessions.SessionDir(session.ID)
 	if err != nil {
 		t.Fatal(err)
