@@ -129,27 +129,35 @@ func main() {
 	var once sync.Once
 	quit := func() { once.Do(func() { close(finished) }) }
 
+	useTray := trayAvailable() && !*noTray
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-signals
 		log.Print("closing at the operating system's request")
-		stopTray()
+		if useTray {
+			// Stopping the tray returns from runTray below, which is what ends
+			// the wait. Asking a tray that was never started to stop would do
+			// nothing useful.
+			stopTray()
+		}
 		quit()
 	}()
 
-	useTray := trayAvailable() && !*noTray
 	if useTray {
 		runTray(trayActions{
-			Review: func() { openPage(reviewURL) },
-			Log:    func() { openPage(reviewURL + "log") },
-			Exited: quit,
+			Review:  func() { openPage(reviewURL) },
+			Log:     func() { openPage(reviewURL + "log") },
+			Closing: quit,
 		})
-		<-finished
+		// The tray has gone, so the application is closing. Say so even if
+		// nothing else has: macOS reaches here by stopping its run loop, which
+		// returns from runTray without invoking systray's exit callback at all.
+		quit()
 	} else {
 		log.Print("running without a system tray icon; interrupt to stop")
-		<-finished
 	}
+	<-finished
 
 	if _, _, _, active := captureManager.Active(); active {
 		log.Print("stopping active recording safely")

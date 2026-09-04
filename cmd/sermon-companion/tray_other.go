@@ -6,9 +6,9 @@ package main
 // it runs as an ordinary process that stops on an interrupt.
 
 type trayActions struct {
-	Review func()
-	Log    func()
-	Exited func()
+	Review  func()
+	Log     func()
+	Closing func()
 }
 
 func trayAvailable() bool { return false }

@@ -78,6 +78,12 @@ changing user-visible behaviour or deployment.
   to be told must reach the dock, the review pages, or the log page. Never add
   something whose only output is a console line, and never let a start-up
   failure be silent.
+- Closing the application is signalled by the tray's own action and by returning
+  from `runTray`, and the signal must be safe to raise more than once. Do not
+  make it depend on systray's exit callback: Windows invokes that from its quit,
+  but macOS quits by stopping the run loop, where the callback runs only if the
+  process is genuinely terminating. Depending on it left the application alive
+  with a dead icon.
 - Keep the operator workflow understandable to people who know basic OBS but
   are not technical users. Prefer clear controls and recoverable actions over
   exposing implementation detail.
