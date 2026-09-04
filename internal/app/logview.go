@@ -12,10 +12,10 @@ import (
 // readLog serves the messages that used to scroll past in the console window.
 func (s *Server) readLog(w http.ResponseWriter, _ *http.Request) {
 	if s.log == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"available": false, "path": "", "lines": []string{}})
+		writeJSON(w, http.StatusOK, map[string]any{"available": false, "path": "", "lines": []string{}, "version": s.version})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"available": true, "path": s.log.Path(), "lines": s.log.Tail(applog.TailLines)})
+	writeJSON(w, http.StatusOK, map[string]any{"available": true, "path": s.log.Path(), "lines": s.log.Tail(applog.TailLines), "version": s.version})
 }
 
 // openLogFolder reveals the log file, so that an operator can send it to

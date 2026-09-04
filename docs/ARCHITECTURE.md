@@ -7,10 +7,22 @@ area icon on Windows and a menu-bar icon on macOS, serving the dock and review
 pages over loopback. Clicking the icon opens the review page; its menu also
 reaches the log page and closes the application, stopping any recording safely
 first. The Windows executable is linked with `-H=windowsgui` so that no console
-window appears, and attaches to a command prompt's console when it is started
-from one, which keeps `--version` and `--list-devices` usable. Binding the
-listening socket is what detects a second copy: rather than failing invisibly,
-it opens the review page of the copy already running and exits.
+window appears.
+
+A windowless process is not waited for by the shell that started it, so writing
+to an interactive prompt lands on top of a prompt that has already been redrawn.
+The application therefore does not attach itself to a console. `--version` and
+`--list-devices` still write to output that has been redirected, which is what a
+script and the release workflow's version check use, and the version is shown on
+the log page for anyone reading it directly. For the same reason nothing may
+depend on standard error: it is not connected, and the log tee keeps the log
+even when writing to it fails, where an `io.MultiWriter` would stop at that
+failure and lose every message.
+
+Binding the listening socket is what detects a second copy: rather than failing
+invisibly, it opens the review page of the copy already running and exits. A
+failure that stops the application before it can serve anything is shown in a
+message box, because there is no console to print it to.
 
 ```text
 HDMI audio device                         OBS custom browser dock

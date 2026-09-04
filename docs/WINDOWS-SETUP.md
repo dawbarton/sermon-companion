@@ -124,7 +124,10 @@ session folder to the person maintaining the installation.
 
 The messages that a console window used to show are on the log page, reached
 from "Show log" in the notification-area icon's menu or from the bottom of the
-review page's left-hand list. They are also written to:
+review page's left-hand list. That page also names the version being run, which
+is what to quote when reporting a problem: the application has no console, so
+typing SermonCompanion.exe --version at a prompt shows nothing. They are also
+written to:
 
   %LOCALAPPDATA%\Sermon Companion\logs\sermon-companion.log
 

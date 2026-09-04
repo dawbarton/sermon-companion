@@ -40,6 +40,7 @@ type Server struct {
 	openFolder func(string) error
 	openLink   func(string) error
 	log        *applog.Log
+	version    string
 	jobsMu     sync.Mutex
 	jobs       map[string]bool
 }
@@ -48,9 +49,11 @@ func NewServer(settings *config.Settings, sessions *store.Store, captureManager 
 	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
 }
 
-// SetLog gives the interface the running log to display. It is optional: the
-// tests construct a server without one.
-func (s *Server) SetLog(l *applog.Log) { s.log = l }
+// SetLog gives the interface the running log to display, and the version to
+// show beside it. The application is linked without a console on Windows, so the
+// log page is where its version is read from. Both are optional: the tests
+// construct a server without them.
+func (s *Server) SetLog(l *applog.Log, version string) { s.log, s.version = l, version }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()

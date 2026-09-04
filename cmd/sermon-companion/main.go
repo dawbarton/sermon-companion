@@ -32,19 +32,23 @@ var version = "dev"
 const applicationDirectory = "Sermon Companion"
 
 func main() {
-	attachParentConsole()
 	defaultData := defaultDataDir()
 	dataDir := flag.String("data-dir", defaultData, "directory for configuration and recordings")
 	configPath := flag.String("config", "", "configuration file (default: DATA-DIR/config.json)")
 	demo := flag.Bool("demo", false, "capture a synthetic tone instead of an audio device")
-	listDevices := flag.Bool("list-devices", false, "list available capture devices")
+	listDevices := flag.Bool("list-devices", false, "list available capture devices (redirect the output; see --version)")
 	openReview := flag.Bool("open", false, "open the review page in a browser at start-up")
 	noTray := flag.Bool("no-tray", false, "run without a system tray icon")
 	// The review page is no longer opened at start-up, so this flag has nothing
 	// left to suppress. It is still accepted so that an existing shortcut or
 	// scheduled task does not fail to start with no console to report why.
 	_ = flag.Bool("no-open", false, "accepted and ignored; the review page is no longer opened automatically")
-	showVersion := flag.Bool("version", false, "print the application version and exit")
+	// The application is linked without a console on Windows, so writing to an
+	// interactive prompt lands on top of the prompt the shell has already
+	// redrawn: it does not wait for a windowless process. Output that is
+	// redirected still arrives, which is what a script or the release workflow
+	// needs, and the version is on the log page for anyone reading it directly.
+	showVersion := flag.Bool("version", false, "print the application version and exit; redirect the output to read it from a prompt")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("Sermon Companion %s\n", version)
@@ -52,7 +56,10 @@ func main() {
 	}
 
 	messages, logErr := applog.New(*dataDir)
-	log.SetOutput(io.MultiWriter(os.Stderr, messages))
+	// Not io.MultiWriter: it stops at its first failing writer, and standard
+	// error is not connected on Windows, where the application is linked without
+	// a console. That would have cost the log every message it exists to keep.
+	log.SetOutput(applog.Tee(messages, os.Stderr))
 	defer messages.Close()
 	log.Printf("Sermon Companion %s starting; data directory %s", version, *dataDir)
 	if logErr != nil {
@@ -109,7 +116,7 @@ func main() {
 
 	mastering := master.New(c, sessions)
 	server := app.NewServer(settings, sessions, captureManager, mastering, app.StaticFiles)
-	server.SetLog(messages)
+	server.SetLog(messages, version)
 	httpServer := &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		log.Printf("Sermon Companion is ready at %s (OBS dock: %sdock)", reviewURL, reviewURL)

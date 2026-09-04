@@ -5,6 +5,7 @@ package applog
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,6 +28,28 @@ type Log struct {
 	size    int64
 	lines   []string
 	partial []byte
+}
+
+// Tee sends each message to the log and then to echo, keeping the log even when
+// echo fails. It exists because io.MultiWriter stops at its first failing
+// writer: standard error is not connected on Windows, where the application is
+// linked without a console, so putting it in an io.MultiWriter alongside the log
+// would silently cost the log every message.
+func Tee(l *Log, echo io.Writer) io.Writer { return &tee{log: l, echo: echo} }
+
+type tee struct {
+	log  *Log
+	echo io.Writer
+}
+
+func (t *tee) Write(p []byte) (int, error) {
+	written, err := t.log.Write(p)
+	if t.echo != nil {
+		// A console that is not there is the ordinary case, not a fault worth
+		// reporting to a logger that has nowhere else to report it.
+		_, _ = t.echo.Write(p)
+	}
+	return written, err
 }
 
 // New opens the rolling log beneath the data directory. A log that cannot be

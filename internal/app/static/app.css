@@ -49,6 +49,7 @@ select:disabled { color: var(--muted); cursor: not-allowed; }
 .log-page { padding: 1.2rem; max-width: 1100px; margin: 0 auto; }
 .log-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .log-header h1 { margin: 0; font-size: 1.2rem; }
+.log-header .version { font-size: .85rem; font-weight: 400; }
 .log-actions { display: flex; gap: .5rem; }
 .log-view { height: 70vh; overflow: auto; margin: .6rem 0; padding: .8rem; border: 1px solid var(--line); border-radius: .55rem; background: #0b1015; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 

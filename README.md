@@ -157,7 +157,8 @@ Starting a second copy by mistake opens the review page of the one already
 running rather than starting again.
 
 **Show log** displays the messages that a console window used to carry, which is
-what to look at first if something did not work. The same page is linked from
+what to look at first if something did not work. It also names the version being
+run. The same page is linked from
 the bottom of the review page sidebar, and the messages are also written to
 `logs\sermon-companion.log` beside the recordings.
 
@@ -196,8 +197,11 @@ To publish a release, commit the intended `VERSION` value and push an annotated
 tag with the same value prefixed by `v`, such as `v0.2.0`. The Windows workflow
 rejects a mismatched or malformed tag, runs the tests with native capture
 enabled, embeds the version in the executable, and creates the GitHub release.
-Release builds report their version with `SermonCompanion.exe --version`, and
-development builds report `dev`.
+Release builds report their version on the log page, and with
+`SermonCompanion.exe --version` when that output is redirected to a file or
+another program. Development builds report `dev`. The application is linked
+without a console on Windows, so a version typed at an interactive prompt has
+nowhere to appear: read it from the log page instead.
 
 ## Licence
 

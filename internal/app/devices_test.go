@@ -95,6 +95,31 @@ func TestDeviceSelectableIgnoresCapitals(t *testing.T) {
 	}
 }
 
+// The application cannot answer --version at an interactive prompt on Windows,
+// so the log page has to carry the version instead.
+func TestLogReportsTheVersion(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	c.Capture.Backend = "ffmpeg"
+	settings := config.NewSettings("", c)
+	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
+	server.SetLog(nil, "1.2.3")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/log", nil))
+	var response struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Version != "1.2.3" {
+		t.Fatalf("version = %q, want 1.2.3", response.Version)
+	}
+}
+
 func TestLogIsServedWhenNoneIsConfigured(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/log", nil))

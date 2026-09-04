@@ -1,11 +1,14 @@
 "use strict";
 const {api} = window.SC;
-const elements = Object.fromEntries(["log", "log-path", "open-folder", "error"].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(["log", "log-path", "open-folder", "error", "version"].map(id => [id, document.getElementById(id)]));
 
 async function refresh() {
   try {
     const state = await api("/api/log");
     elements.error.textContent = "";
+    // The application has no console to answer --version at a prompt, so this
+    // is where its version is read from.
+    elements.version.textContent = state.version ? `version ${state.version}` : "";
     elements["log-path"].textContent = state.path
       ? `Written to ${state.path}. The most recent messages are shown; the file holds more.`
       : "Messages are kept only until this application closes, because the log file could not be opened.";

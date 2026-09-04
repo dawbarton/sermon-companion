@@ -77,7 +77,14 @@ changing user-visible behaviour or deployment.
 - The application runs without a window or a console. Anything the operator has
   to be told must reach the dock, the review pages, or the log page. Never add
   something whose only output is a console line, and never let a start-up
-  failure be silent.
+  failure be silent. The shell does not wait for a windowless process, so the
+  application deliberately does not attach to a console: output written to an
+  interactive prompt arrives after that prompt has been redrawn and lands on top
+  of it. Redirected output still works and is what the release workflow checks.
+- Standard error is not connected on Windows. Never place it first in an
+  `io.MultiWriter` with the log, or ahead of anything that matters: that writer
+  stops at its first failure, which silently cost the log every message it
+  exists to keep. `applog.Tee` is the way to write to both.
 - Closing the application is signalled by the tray's own action and by returning
   from `runTray`, and the signal must be safe to raise more than once. Do not
   make it depend on systray's exit callback: Windows invokes that from its quit,
@@ -108,14 +115,14 @@ single source of the release version. While the project remains below 1.0,
 increment MINOR for new functionality or intentionally incompatible session/API
 changes, and PATCH for compatible corrections. A release tag is `v` followed
 by the exact `VERSION` value. Release builds inject that value into the binary;
-ordinary development builds identify themselves as `dev` through `--version`.
+ordinary development builds identify themselves as `dev`. The version is read
+from the log page, and from `--version` when its output is redirected.
 
 - `cmd/sermon-companion/main.go`: flags, platform data directory, application
   assembly, local server lifecycle, bundled-FFmpeg discovery, logging set-up,
   and the single-instance check that binding the listening socket performs.
   Alongside it, `tray.go` shows the notification-area icon, `icon.go` draws that
-  icon in code, and `console_windows.go` attaches to a command prompt's console
-  so that a windowless build can still answer `--version`.
+  icon in code.
 - `internal/config`: configuration defaults, create-on-first-run behaviour, and
   the live settings the dock writes a chosen device back through.
 - `internal/applog`: rolling log file and the bounded tail the log page shows.
@@ -189,10 +196,11 @@ Windows-capable C compiler. A pure-Go cross-build compiles only the no-cgo stub
 and is not a usable miniaudio release. Hardware-dependent WASAPI behaviour
 cannot be certified on macOS; report this boundary explicitly. The same applies
 to the Windows shell: the absence of a console under `-H=windowsgui`, the
-notification-area icon, the message box shown for a start-up failure, and the
-console attachment that keeps `--version` working are all reasoned from the API
-contracts and cannot be verified from macOS. Say so rather than implying they
-were tested.
+notification-area icon, and the message box shown for a start-up failure are
+reasoned from the API contracts and cannot be verified from macOS. Say so rather
+than implying they were tested. The release workflow does compile and run the
+cgo-enabled tests on Windows and checks `--version` through redirected output,
+so those two are covered; nothing in it clicks anything.
 
 The canonical automated release environment is the pinned `windows-2025`
 GitHub runner with MSYS2 UCRT64 GCC. A tag matching `v*.*.*` starts the workflow,

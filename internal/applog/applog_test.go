@@ -1,6 +1,7 @@
 package applog
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -113,3 +114,42 @@ func TestTailSurvivesAnUnopenableFile(t *testing.T) {
 		t.Fatalf("path = %q, want no file to be claimed", messages.Path())
 	}
 }
+
+// Standard error is not connected on Windows, where the application is linked
+// without a console. If that failure could stop the message reaching the log,
+// the log page and the log file would both be empty in the ordinary case of an
+// operator double-clicking the application.
+func TestTeeKeepsTheLogWhenTheConsoleFails(t *testing.T) {
+	messages, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer messages.Close()
+	logger := log.New(Tee(messages, failingWriter{}), "", 0)
+	logger.Print("recorded despite the missing console")
+	tail := messages.Tail(0)
+	if len(tail) != 1 || tail[0] != "recorded despite the missing console" {
+		t.Fatalf("tail = %q, want the message kept", tail)
+	}
+}
+
+func TestTeeAlsoWritesToTheConsole(t *testing.T) {
+	messages, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer messages.Close()
+	var console strings.Builder
+	logger := log.New(Tee(messages, &console), "", 0)
+	logger.Print("shown in both places")
+	if got := strings.TrimSpace(console.String()); got != "shown in both places" {
+		t.Fatalf("console got %q, want the message", got)
+	}
+	if tail := messages.Tail(0); len(tail) != 1 {
+		t.Fatalf("tail = %q, want the message", tail)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("the handle is invalid") }
