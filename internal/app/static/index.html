@@ -20,7 +20,6 @@
           <form id="session-details" class="session-details">
             <label>Service title <input id="session-title" required></label>
             <label>Church <input id="church" required></label>
-            <button id="save-session" type="submit">Save details</button>
             <div id="session-meta" class="muted"></div>
           </form>
           <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><a id="download" class="hidden"><button>Download MP3</button></a></div>
@@ -49,7 +48,7 @@
         <p id="error" class="error"></p>
         <div class="section-head">
           <h3>Segments</h3>
-          <div class="section-actions"><span class="muted">Changes save themselves. Parts sharing a label are levelled together.</span><button id="show-add-segment">Add segment</button></div>
+          <div class="section-actions"><button id="show-add-segment">Add segment</button></div>
         </div>
         <form id="add-segment" class="segment-add-form card hidden">
           <label>Label <input id="new-segment-label" placeholder="Notices" required></label>
@@ -63,6 +62,7 @@
           <tbody id="segments"></tbody>
         </table>
         <details id="removed-panel" class="removed-panel hidden"><summary>Removed segments (<span id="removed-count">0</span>)</summary><div id="removed-segments" class="removed-segments"></div></details>
+        <p class="muted export-note">Segments that share a label have their loudness normalised together.</p>
         <div class="export-options">
           <label for="gap-seconds">Silence between segments</label>
           <input id="gap-seconds" type="number" min="0" max="30" step="0.5" inputmode="decimal">

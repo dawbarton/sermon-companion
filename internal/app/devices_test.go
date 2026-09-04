@@ -126,3 +126,50 @@ func TestLogPageIsServed(t *testing.T) {
 		t.Fatal("the log page was not served")
 	}
 }
+
+// An embedded file has no modification time, so without an ETag a browser is
+// given nothing to revalidate against and can keep running a script from before
+// an upgrade against an API that has moved on.
+func TestAssetsCanBeRevalidated(t *testing.T) {
+	handler := ffmpegBackedHandler(t)
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/assets/review.js", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", first.Code)
+	}
+	tag := first.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("no ETag was offered for an embedded asset")
+	}
+	if cache := first.Header().Get("Cache-Control"); cache != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want no-cache", cache)
+	}
+	repeat := httptest.NewRequest(http.MethodGet, "/assets/review.js", nil)
+	repeat.Header.Set("If-None-Match", tag)
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, repeat)
+	if second.Code != http.StatusNotModified {
+		t.Fatalf("status = %d for an unchanged asset, want 304", second.Code)
+	}
+	stale := httptest.NewRequest(http.MethodGet, "/assets/review.js", nil)
+	stale.Header.Set("If-None-Match", `"0000000000000000"`)
+	third := httptest.NewRecorder()
+	handler.ServeHTTP(third, stale)
+	if third.Code != http.StatusOK || third.Body.Len() == 0 {
+		t.Fatalf("status = %d for a changed asset, want 200 with the new file", third.Code)
+	}
+}
+
+func TestPagesAreNotCachedWithoutChecking(t *testing.T) {
+	handler := ffmpegBackedHandler(t)
+	for _, path := range []string{"/", "/dock", "/log"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200", path, recorder.Code)
+		}
+		if cache := recorder.Header().Get("Cache-Control"); cache != "no-cache" {
+			t.Fatalf("%s Cache-Control = %q, want no-cache", path, cache)
+		}
+	}
+}

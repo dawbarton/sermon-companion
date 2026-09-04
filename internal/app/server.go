@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,8 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/log", s.readLog)
 	mux.HandleFunc("POST /api/open-log-folder", s.openLogFolder)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.events)
-	assets, _ := fs.Sub(s.static, "static")
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", s.assets()))
 	mux.HandleFunc("GET /dock", s.page("dock.html"))
 	mux.HandleFunc("GET /log", s.page("log.html"))
 	mux.HandleFunc("GET /", s.page("index.html"))
@@ -94,6 +95,38 @@ func (s *Server) localOnlyHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// assets serves the embedded browser files. An embedded file reports no
+// modification time, so http.FileServer sends nothing a browser can revalidate
+// against, and a cached script can outlive an upgrade and run against an API it
+// no longer matches. Each file is given an ETag from its own contents and must
+// be checked before it is reused.
+func (s *Server) assets() http.Handler {
+	assets, _ := fs.Sub(s.static, "static")
+	fileServer := http.FileServer(http.FS(assets))
+	tags := map[string]string{}
+	_ = fs.WalkDir(assets, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		data, readErr := fs.ReadFile(assets, path)
+		if readErr != nil {
+			return nil
+		}
+		sum := sha256.Sum256(data)
+		tags[path] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		return nil
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The prefix strip leaves the path without its leading slash, which
+		// http.FileServer puts back for itself.
+		if tag, ok := tags[strings.TrimPrefix(r.URL.Path, "/")]; ok {
+			w.Header().Set("ETag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) page(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/dock" && r.URL.Path != "/log" {
@@ -106,6 +139,9 @@ func (s *Server) page(name string) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// The page names the scripts it needs, so it must not be reused from a
+		// cache after an upgrade without being checked.
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Write(data)
 	}
 }

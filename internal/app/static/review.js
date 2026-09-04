@@ -2,7 +2,7 @@
 const {api, formatTime, parseTime} = window.SC;
 const elementIDs = [
   "session-list", "empty", "detail", "session-details", "session-title", "church",
-  "save-session", "session-meta", "audio", "open-folder",
+  "session-meta", "audio", "open-folder",
   "waveform-viewport", "waveform-canvas", "segment-overlay", "playhead",
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
@@ -146,9 +146,13 @@ function render() {
   const exp = current.export;
   elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
   if (document.activeElement !== elements["gap-seconds"]) elements["gap-seconds"].value = gapSeconds(current);
-  elements["gap-seconds"].disabled = exp?.status === "running";
-  elements.export.disabled = isRecording(current) || exp?.status === "running";
-  elements["save-session"].disabled = exp?.status === "running";
+  const exporting = exp?.status === "running";
+  elements["gap-seconds"].disabled = exporting;
+  elements.export.disabled = isRecording(current) || exporting;
+  // The API refuses a change while an MP3 is being made, so the boxes say so
+  // rather than accepting an edit that will bounce.
+  elements["session-title"].disabled = exporting;
+  elements.church.disabled = exporting;
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
 }
@@ -551,21 +555,60 @@ elements["add-marker"].addEventListener("submit", async event => {
   } catch (error) { showError(error); }
 });
 
-elements["session-details"].addEventListener("submit", async event => {
+// The title and church save themselves when the box is left or Enter is
+// pressed, like every other field on this page. The form stays only so that
+// Enter does not reload the page.
+elements["session-details"].addEventListener("submit", event => {
   event.preventDefault();
-  try { await saveSessionDetails(); }
-  catch (error) { showError(error); }
+  commitSessionDetails();
 });
+
+for (const field of ["session-title", "church"]) {
+  // Leaving the box commits it, as it does for a segment's times.
+  elements[field].addEventListener("change", () => saveSessionDetails());
+  // Enter has to be handled here rather than left to the form. With the save
+  // button gone the form has no submit button and two text boxes, and a browser
+  // submits such a form implicitly only when it holds a single field.
+  elements[field].addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitSessionDetails();
+  });
+}
+
+// Leaving the box raises the change event that saves it, but only where the
+// browser saw the value edited, so the save is also asked for directly.
+function commitSessionDetails() {
+  document.activeElement?.blur();
+  saveSessionDetails();
+}
+
+// Guards against the blur above and the direct call both sending the same
+// change, which would write two entries into the session's journal.
+let savingDetails = false;
 
 async function saveSessionDetails() {
   const title = elements["session-title"].value.trim();
   const church = elements.church.value.trim();
-  if (title === current.title && church === current.church) return;
-  elements["save-session"].disabled = true;
+  if (savingDetails || (title === current.title && church === current.church)) return;
+  savingDetails = true;
   try {
     current = await api(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({title, church})});
-    elements.error.textContent = ""; render(); await loadSessions();
-  } finally { elements["save-session"].disabled = false; }
+    elements.error.textContent = "";
+    await loadSessions();
+  } catch (error) {
+    // Both boxes name the MP3, so a rejected change goes back to the value the
+    // next export would actually use rather than being left as typed. This is
+    // done here rather than left to render, which deliberately does not touch a
+    // field being edited: moving from one of these boxes to the other keeps the
+    // focus inside the form.
+    showError(error);
+    elements["session-title"].value = current.title;
+    elements.church.value = current.church || "Church";
+  } finally {
+    savingDetails = false;
+  }
+  render();
 }
 
 // The gap is only used when the MP3 is made, so it saves itself like the

@@ -67,9 +67,28 @@ changing user-visible behaviour or deployment.
 - Keep the server loopback-only by default and suitable for OBS's embedded
   Chromium browser. There is deliberately no cloud service or OBS WebSocket
   dependency.
+- A capture-device selection is refused unless that device is present, so
+  `config.json` can never come to name a device that will fail to open during a
+  service. The interface's test for a device that has gone missing must mirror
+  the capture backend's own lookup, including its case-insensitive comparison of
+  identifiers, or the two will disagree about what will happen on Sunday.
+  Starting a recording against a missing device fails; it never falls back to
+  another one.
+- The application runs without a window or a console. Anything the operator has
+  to be told must reach the dock, the review pages, or the log page. Never add
+  something whose only output is a console line, and never let a start-up
+  failure be silent.
 - Keep the operator workflow understandable to people who know basic OBS but
   are not technical users. Prefer clear controls and recoverable actions over
   exposing implementation detail.
+- The dock shares a narrow, short column with other OBS docks. Before recording
+  it shows the device list, Start Recording, and Review Recordings, and nothing
+  else; the recording controls replace them once a service is under way. Weigh
+  every new dock element against the vertical space it costs, and prefer putting
+  information on an existing control over adding a line.
+- The review page saves as it goes. A field or control there must apply its own
+  change rather than waiting for a save button, and must show the value the next
+  MP3 would actually use if a change is rejected.
 
 ## Architecture and important files
 
@@ -86,8 +105,14 @@ by the exact `VERSION` value. Release builds inject that value into the binary;
 ordinary development builds identify themselves as `dev` through `--version`.
 
 - `cmd/sermon-companion/main.go`: flags, platform data directory, application
-  assembly, local server lifecycle, and bundled-FFmpeg discovery.
-- `internal/config`: configuration defaults and create-on-first-run behaviour.
+  assembly, local server lifecycle, bundled-FFmpeg discovery, logging set-up,
+  and the single-instance check that binding the listening socket performs.
+  Alongside it, `tray.go` shows the notification-area icon, `icon.go` draws that
+  icon in code, and `console_windows.go` attaches to a command prompt's console
+  so that a windowless build can still answer `--version`.
+- `internal/config`: configuration defaults, create-on-first-run behaviour, and
+  the live settings the dock writes a chosen device back through.
+- `internal/applog`: rolling log file and the bounded tail the log page shows.
 - `internal/capture`: miniaudio source, bounded PCM buffering, audio-frame clock,
   FLAC encoder lifecycle, device enumeration, and explicit FFmpeg fallback.
 - `internal/store`: versioned session model, atomic snapshot persistence,
@@ -113,10 +138,14 @@ The default local pages are:
 
 - Manager: `http://127.0.0.1:8765/`
 - OBS dock: `http://127.0.0.1:8765/dock`
+- Log: `http://127.0.0.1:8765/log`
+
+The application log sits beside the sessions, under `logs/`.
 
 The principal configuration fields are `listen`, `ffmpeg`, `ffprobe`, `church`,
 `capture`, `presets`, and `mastering`. The application creates `config.json` on
-first launch. Do not add a hand-maintained sample configuration that can drift
+first launch and rewrites it when the operator chooses a capture device, so a
+change to the file's shape has to survive being written back as well as read. Do not add a hand-maintained sample configuration that can drift
 from `internal/config/config.go` without a specific reason and a consistency
 test.
 
@@ -130,6 +159,8 @@ make run-demo
 go test -race ./... -count=1
 go vet ./...
 node --check internal/app/static/review.js
+node --check internal/app/static/dock.js
+node --check internal/app/static/log.js
 git diff --check
 ```
 
@@ -150,7 +181,12 @@ tests; state any interaction that could not be automated.
 Before calling a release build complete, run `scripts/build-windows.ps1` with a
 Windows-capable C compiler. A pure-Go cross-build compiles only the no-cgo stub
 and is not a usable miniaudio release. Hardware-dependent WASAPI behaviour
-cannot be certified on macOS; report this boundary explicitly.
+cannot be certified on macOS; report this boundary explicitly. The same applies
+to the Windows shell: the absence of a console under `-H=windowsgui`, the
+notification-area icon, the message box shown for a start-up failure, and the
+console attachment that keeps `--version` working are all reasoned from the API
+contracts and cannot be verified from macOS. Say so rather than implying they
+were tested.
 
 The canonical automated release environment is the pinned `windows-2025`
 GitHub runner with MSYS2 UCRT64 GCC. A tag matching `v*.*.*` starts the workflow,
@@ -167,7 +203,11 @@ use it to validate a release commit before tagging.
 ## Code and persistence practices
 
 - Keep dependencies minimal. Prefer the Go standard library and native browser
-  APIs unless a dependency has a clear maintenance benefit.
+  APIs unless a dependency has a clear maintenance benefit. The exceptions are
+  `malgo` for miniaudio and `fyne.io/systray` for the notification-area icon,
+  which the standard library cannot provide and which the application needs
+  because it has no window of its own. Draw or generate assets in code rather
+  than committing binary files for them.
 - Keep platform-specific capture concerns behind `internal/capture`. Do not let
   CoreAudio or WASAPI assumptions leak into the store, API, UI, waveform, or
   mastering packages.
