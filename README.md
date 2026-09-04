@@ -29,10 +29,13 @@ there is no account, cloud service, or internet connection involved.
    and unpack it wherever you like, for example `C:\SermonCompanion`.
 2. Download a trusted Windows build of FFmpeg and copy `ffmpeg.exe` and
    `ffprobe.exe` into the same folder, beside `SermonCompanion.exe`.
-3. Double-click `Start Sermon Companion.cmd`. The review page opens in your web
-   browser, and a small console window stays open while the application runs.
+3. Double-click `SermonCompanion.exe`. Nothing appears to happen: the
+   application runs in the background, with an icon in the notification area by
+   the clock. Click that icon to open the review page.
 4. Add the dock to OBS: **Docks → Custom Browser Docks**, name it
    `Sermon recording`, and enter the address `http://127.0.0.1:8765/dock`.
+5. In the OBS dock, choose the HDMI capture device from the list at the top. The
+   choice is remembered for future services.
 
 [docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md) covers this in more detail,
 including choosing the capture device and what to do if OBS and Sermon
@@ -45,8 +48,9 @@ the MP3.
 
 In the OBS dock:
 
-1. Type a title, such as `Sunday morning service`, and press **Start continuous
-   recording**. The whole service is now being recorded.
+1. Check that the device list at the top names the HDMI capture, then press
+   **Start Recording**. The whole service is now being recorded. The service is
+   named after today's date; the review page can rename it afterwards.
 2. Press **Reading**, **Sermon**, or **Q&A** when each part begins. Pressing the
    next one ends the previous one. Press the same button again to end a part
    without starting another.
@@ -55,8 +59,13 @@ In the OBS dock:
 4. Press **Stop service** at the end.
 
 Being a few seconds late with a button does not matter. The complete audio is
-kept, and the times are adjusted afterwards. **Open review page** opens the
-review and MP3 page in your web browser.
+kept, and the times are adjusted afterwards. **Review Recordings** opens the
+review and MP3 page in your web browser, as does clicking the notification-area
+icon.
+
+If the device list shows **⚠ Not connected**, the device chosen last time is not
+there now. Pick the right one from the list before starting; recording will not
+begin against a device that is missing.
 
 ## Reviewing and creating the MP3
 
@@ -104,6 +113,11 @@ Each service has its own folder there, holding the lossless recording, the
 marks, and the MP3s made from it. Replacing the application folder with a newer
 release does not touch any of it.
 
+Versions before 0.6.0 used `%APPDATA%\Sermon Companion`, in the roaming profile,
+which is copied between machines and is no place for recordings this large.
+Nothing is moved automatically. If that folder exists, the log says so; copy
+across `config.json` and any recordings still wanted, then delete it.
+
 A service can be deleted with the ✕ beside it in the list. That removes its
 recording, its marks, and its MP3s from this computer for good.
 
@@ -121,7 +135,7 @@ are:
 | Setting | Meaning |
 | --- | --- |
 | `church` | Church name for new services, used in the MP3 filename. |
-| `capture.deviceId` | Recording device. Run `SermonCompanion.exe --list-devices` to see the available devices and their identifiers. |
+| `capture.deviceId` | Recording device. Normally set by choosing a device in the OBS dock rather than by hand. |
 | `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
 | `mastering.integratedLUFS` | Loudness the finished MP3 is levelled to. The default, `-19`, follows the Apple Podcasts recommendation for spoken word. |
@@ -129,6 +143,23 @@ are:
 | `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |
+
+## Running in the background
+
+The application has no window of its own. It sits in the Windows notification
+area, or the macOS menu bar, and stays there until it is closed:
+
+- Clicking the icon opens the review page.
+- Its menu offers the review page, **Show log**, and **Quit Sermon Companion**.
+- Quitting closes any recording in progress safely first.
+
+Starting a second copy by mistake opens the review page of the one already
+running rather than starting again.
+
+**Show log** displays the messages that a console window used to carry, which is
+what to look at first if something did not work. The same page is linked from
+the bottom of the review page sidebar, and the messages are also written to
+`logs\sermon-companion.log` beside the recordings.
 
 ## Building from source
 

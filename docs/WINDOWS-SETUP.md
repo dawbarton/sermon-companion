@@ -10,6 +10,9 @@ Keep these files together in one folder:
   ffprobe.exe
   Start Sermon Companion.cmd
 
+SermonCompanion.exe can be double-clicked directly. The .cmd launcher does the
+same thing and is kept only so that existing shortcuts to it still work.
+
 The GitHub release ZIP contains the application, launcher, and these notes. For
 licensing and supply-chain clarity it does not redistribute FFmpeg. Download a
 trusted Windows FFmpeg build separately, version 4.4 or later, then copy
@@ -22,61 +25,67 @@ The application stores recordings and settings separately under:
 Replacing the application folder therefore does not replace any recordings or
 session metadata.
 
+Versions before 0.6.0 used %APPDATA%\Sermon Companion, in the roaming profile.
+Nothing is moved automatically. If that folder is present the log reports it;
+copy across config.json and any recordings still wanted, then delete it.
+
 
 ONE-TIME TECHNICAL SETUP
 
-1. Open Command Prompt in the application folder and run:
+1. Double-click SermonCompanion.exe. No window opens: the application runs in
+   the background and puts an icon in the notification area beside the clock.
+   Windows may hide it under the arrow there; drag it onto the taskbar so that
+   the operator can see whether the application is running.
 
-     SermonCompanion.exe --list-devices
-
-2. Find the audio device associated with the HDMI capture. Copy its `id` value;
-   this avoids ambiguity when Windows exposes several devices with similar
-   names.
-
-3. Start Sermon Companion once, then close it. Open:
-
-     %LOCALAPPDATA%\Sermon Companion\config.json
-
-4. Set the top-level `"church"` value to the church name. This becomes the
-   default for each new service, for example:
-
-     "church": "St Mary's Church",
-
-5. In the "capture" section, use:
-
-     "backend": "miniaudio",
-     "deviceId": "THE ID PRINTED BY --list-devices",
-     "device": "THE DEVICE NAME (for operator reference)",
-     "sampleRate": 48000,
-     "channels": 2,
-     "periodMilliseconds": 20,
-     "bufferSeconds": 10
-
-6. Start the application again and make a short test recording. Confirm that
-   the review page plays the expected church mix, not a microphone or silent
-   device, and that it reports zero dropped frames.
-
-7. In OBS, choose View, Docks, Custom Browser Docks. Add:
+2. In OBS, choose View, Docks, Custom Browser Docks. Add:
 
      Dock name: Sermon recording
      URL:       http://127.0.0.1:8765/dock
 
-The local address is available only on this computer. It does not expose the
-recording controls to the church network or the internet.
+   The local address is available only on this computer. It does not expose the
+   recording controls to the church network or the internet.
+
+3. In the dock, open the list at the top and choose the audio device associated
+   with the HDMI capture. The choice is written to config.json and used again
+   next time. Devices are identified by the identifier Windows gives them, not
+   by name alone, so several devices with similar names are not confused.
+
+4. Open:
+
+     %LOCALAPPDATA%\Sermon Companion\config.json
+
+   Set the top-level "church" value to the church name. This becomes the default
+   for each new service, for example:
+
+     "church": "St Mary's Church",
+
+   Save the file and restart the application. Everything else in "capture" is
+   already correct: 48000 Hz, 2 channels, 20 ms periods, and 10 seconds of
+   buffer.
+
+5. Make a short test recording. Confirm that the review page plays the expected
+   church mix, not a microphone or silent device, and that it reports zero
+   dropped frames.
 
 
 NORMAL OPERATION
 
-1. Double-click "Start Sermon Companion.cmd" before opening the OBS dock.
-2. In the OBS dock, enter a service title and click "Start continuous
-   recording".
+1. Double-click SermonCompanion.exe before opening OBS, unless it is already
+   running. Its icon sits in the notification area; clicking that icon opens the
+   review page. Starting it twice by mistake is harmless: the second copy opens
+   the review page of the first and closes.
+2. In the OBS dock, check that the list at the top names the HDMI capture, then
+   click "Start Recording". The service is named after today's date, and can be
+   renamed on the review page. If the list shows "Not connected", the device
+   used last time is absent: choose the right one before starting. A recording
+   will not begin against a device that is missing.
 3. Click Start Reading, Start Sermon, and Start Q&A at the appropriate times.
    Starting one part automatically ends any open part. Clicking an active part
    ends it without starting another.
 4. "Add marker" records a general note position without changing a segment.
 5. At the end of the service, click "Stop service".
-6. Click "Open review page" in the dock, or open http://127.0.0.1:8765/ in a
-   browser. Check and, if necessary, edit the
+6. Click "Review Recordings" in the dock, click the notification-area icon, or
+   open http://127.0.0.1:8765/ in a browser. Check and, if necessary, edit the
    service title and church, then click "Save details". Each segment has its own
    Play button, with First 5s and Last 5s for checking where it begins and ends.
    For coarse adjustments, drag a segment or either of its edges on the waveform.
@@ -112,6 +121,16 @@ indefinitely.
 If the dock displays a recording problem or any dropped frames, retain the
 partial recording but do not assume it is complete. Give `capture.log` and the
 session folder to the person maintaining the installation.
+
+The messages that a console window used to show are on the log page, reached
+from "Show log" in the notification-area icon's menu or from the bottom of the
+review page's left-hand list. They are also written to:
+
+  %LOCALAPPDATA%\Sermon Companion\logs\sermon-companion.log
+
+Send that file along with the session folder when reporting a problem. To close
+the application, use "Quit Sermon Companion" in the icon's menu, which stops any
+recording in progress safely first.
 
 
 RECOVERY

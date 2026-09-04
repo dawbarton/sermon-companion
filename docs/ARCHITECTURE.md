@@ -2,6 +2,16 @@
 
 ## Process boundary
 
+The application has no window. It runs in the background behind a notification-
+area icon on Windows and a menu-bar icon on macOS, serving the dock and review
+pages over loopback. Clicking the icon opens the review page; its menu also
+reaches the log page and closes the application, stopping any recording safely
+first. The Windows executable is linked with `-H=windowsgui` so that no console
+window appears, and attaches to a command prompt's console when it is started
+from one, which keeps `--version` and `--list-devices` usable. Binding the
+listening socket is what detects a second copy: rather than failing invisibly,
+it opens the review page of the copy already running and exits.
+
 ```text
 HDMI audio device                         OBS custom browser dock
         |                                           |
@@ -62,6 +72,37 @@ metadata records accepted and written frames, dropped frames, callback count,
 queue high-water level, wall and audio durations, and their drift in parts per
 million.
 
+## Configuration and device selection
+
+`config.json` was read once at start-up. The capture device is now chosen in the
+dock, so `internal/config` holds the live configuration behind a lock and
+replaces the file atomically when it changes. Values the application resolves for
+itself, such as an FFmpeg found beside the executable, are applied over the saved
+configuration rather than into it: writing a resolved absolute path back to
+`config.json` would leave it wrong as soon as the application folder moved.
+
+The dock lists devices through `capture.Available`, which is structured only for
+the miniaudio backend; the FFmpeg backends describe their devices as prose meant
+for a person, and the interface says so rather than offering a list that could
+disagree with what FFmpeg would open. A selection is refused unless the device is
+present, so `config.json` cannot come to name a device that will fail to open
+during a service. The check for a device that has gone missing mirrors the
+capture backend's own lookup, including its case-insensitive comparison of
+identifiers, so the dock's judgement and the recording's cannot diverge. A
+missing device is reported in the dock before the service rather than as a
+failure to start recording, and starting against one still fails rather than
+silently recording something else.
+
+## Logging
+
+Without a console, the messages that used to scroll past need somewhere to live.
+`internal/applog` writes them to a size-capped rolling file under the data
+directory, keeping one previous file, and holds the most recent lines in memory
+for the log page to show. It is also an `io.Writer` for the standard logger,
+teed with standard error so that a terminal run is unchanged. A log file that
+cannot be opened is not fatal: the in-memory tail still works, because losing
+the messages entirely is worse than losing the file copy of them.
+
 ## Generic segment model
 
 A session stores the service title and church alongside its recording state.
@@ -93,9 +134,19 @@ retains an optional explicit kind for future integrations.
 
 ## Durability
 
-Each session is an independent directory:
+The data directory is `%LOCALAPPDATA%\Sermon Companion` on Windows and
+`~/Library/Application Support/Sermon Companion` on macOS. A service is roughly
+500 MB, so on Windows this is deliberately the local profile rather than the
+roaming one that `os.UserConfigDir` reports. Beneath it, the application log sits
+alongside the sessions, and each session is an independent directory:
 
 ```text
+config.json
+
+logs/
+  sermon-companion.log       current messages, rotated at one megabyte
+  sermon-companion.log.1     the previous file
+
 sessions/SESSION-ID/
   audio.flac                 immutable source after a clean stop
   capture.log
@@ -208,10 +259,11 @@ file as current.
 
 The UI uses a small JSON API beneath `/api`. It supports session start and stop,
 generic segment start, stop, and adjustment, point markers, session history,
-lossless playback, waveform-envelope generation, and asynchronous export. It can
-also ask the operating system to open the MP3 folder or the review page, because
-the dock runs inside OBS's embedded browser where an ordinary link would open in
-the dock panel itself. The server listens on loopback by
+lossless playback, waveform-envelope generation, and asynchronous export. It also
+reports and records the chosen capture device, and serves the running log. It can
+ask the operating system to open the MP3 folder, the log folder, or the review
+page, because the dock runs inside OBS's embedded browser where an ordinary link
+would open in the dock panel itself. The server listens on loopback by
 default and sets a restrictive content-security policy. It has no cloud or OBS
 WebSocket dependency. Live status includes the audio-frame position and capture
 health statistics.
@@ -219,8 +271,9 @@ health statistics.
 ## Repository map
 
 ```text
-cmd/sermon-companion/   application entry point
+cmd/sermon-companion/   application entry point, tray icon, and drawn icon
 internal/app/           local HTTP API and embedded browser UI
+internal/applog/        rolling log file and the tail the log page shows
 internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback
 internal/config/        configuration defaults and create-on-first-run behaviour
 internal/master/        per-label two-pass loudness normalisation and MP3
