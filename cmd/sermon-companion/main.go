@@ -32,6 +32,7 @@ var version = "dev"
 const applicationDirectory = "Sermon Companion"
 
 func main() {
+	attachParentConsole()
 	defaultData := defaultDataDir()
 	dataDir := flag.String("data-dir", defaultData, "directory for configuration and recordings")
 	configPath := flag.String("config", "", "configuration file (default: DATA-DIR/config.json)")

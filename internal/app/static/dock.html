@@ -7,13 +7,13 @@
   <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body class="dock">
-  <header>
-    <h1><span id="status-dot" class="status-dot"></span>Sermon recording</h1>
+  <div id="record-header" class="record-header hidden">
+    <span id="status-dot" class="status-dot"></span>
     <span id="timer" class="timer time">00:00:00</span>
-  </header>
-  <div id="start-panel" class="card start-panel">
-    <label>Service title <input id="title" placeholder="Sunday morning service"></label>
-    <button id="start" class="primary">Start continuous recording</button>
+  </div>
+  <div id="start-panel" class="start-panel">
+    <select id="device" aria-label="Audio device to record from"></select>
+    <button id="start" class="primary">Start Recording</button>
   </div>
   <div id="record-panel" class="hidden">
     <div id="presets" class="preset-grid"></div>
@@ -23,7 +23,7 @@
     </div>
     <p id="capture-health" class="capture-health hidden"></p>
   </div>
-  <div class="dock-footer"><button id="open-review" title="Open the review and MP3 page in your web browser">Open review page</button></div>
+  <button id="open-review" class="review-button" title="Open the review and MP3 page in your web browser">Review Recordings</button>
   <p id="error" class="error"></p>
   <script src="/assets/common.js"></script>
   <script src="/assets/dock.js"></script>

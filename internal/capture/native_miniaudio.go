@@ -284,9 +284,9 @@ func selectMiniaudioDevice(context malgo.Context, requestedID, requestedName str
 		return nil, nil
 	}
 	if requestedID != "" {
-		return nil, fmt.Errorf("miniaudio capture device ID %q was not found; run --list-devices", requestedID)
+		return nil, fmt.Errorf("the saved capture device was not found; choose one in the OBS dock (device ID %q)", requestedID)
 	}
-	return nil, fmt.Errorf("miniaudio capture device %q was not found; run --list-devices", requestedName)
+	return nil, fmt.Errorf("capture device %q was not found; choose one in the OBS dock", requestedName)
 }
 
 func writeAll(writer io.Writer, data []byte) (int, error) {

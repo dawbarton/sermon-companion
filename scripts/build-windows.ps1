@@ -31,7 +31,11 @@ try {
         Remove-Item -Recurse -Force "dist\SermonCompanion"
     }
     New-Item -ItemType Directory -Force -Path "dist\SermonCompanion" | Out-Null
-    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o "dist\SermonCompanion\SermonCompanion.exe" .\cmd\sermon-companion
+    # -H=windowsgui links the executable without a console, so double-clicking
+    # it leaves the tray icon and no black window. Output redirected by another
+    # program still arrives, and the application attaches to a command prompt's
+    # console when it is started from one.
+    go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version" -o "dist\SermonCompanion\SermonCompanion.exe" .\cmd\sermon-companion
     Copy-Item "scripts\Start Sermon Companion.cmd" "dist\SermonCompanion\Start Sermon Companion.cmd"
     Copy-Item "docs\WINDOWS-SETUP.md" "dist\SermonCompanion\README.txt"
     Copy-Item "VERSION" "dist\SermonCompanion\VERSION"
