@@ -100,6 +100,12 @@ itself, such as an FFmpeg found beside the executable, are applied over the save
 configuration rather than into it: writing a resolved absolute path back to
 `config.json` would leave it wrong as soon as the application folder moved.
 
+The saved configuration is decoded strictly and validated before retention or
+capture is allowed to run. Unknown fields are errors, which is particularly
+important for `retentionDays`: a misspelt request to keep every recording must
+not silently reinstate the default deletion period. Capture sizes and retention
+are bounded before they can overflow an allocation or duration calculation.
+
 The dock lists devices through `capture.Available`, which is structured only for
 the miniaudio backend; the FFmpeg backends describe their devices as prose meant
 for a person, and the interface says so rather than offering a list that could

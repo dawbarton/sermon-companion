@@ -153,7 +153,16 @@ func (s *Store) Update(id, eventType string, payload interface{}, mutate func(*S
 }
 
 func (s *Store) saveLocked(session *Session, eventType string, payload interface{}) error {
-	dir := filepath.Join(s.root, "sessions", session.ID)
+	if session == nil {
+		return errors.New("session is required")
+	}
+	if session.SchemaVersion < 1 || session.SchemaVersion > SchemaVersion {
+		return fmt.Errorf("unsupported session schema version %d", session.SchemaVersion)
+	}
+	dir, err := s.SessionDir(session.ID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -201,6 +210,15 @@ func (s *Store) getLocked(id string) (*Session, error) {
 	var session Session
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, err
+	}
+	if session.ID != id {
+		return nil, fmt.Errorf("session snapshot ID %q does not match directory %q", session.ID, id)
+	}
+	if !validID(session.ID) {
+		return nil, errors.New("session snapshot contains an invalid ID")
+	}
+	if session.SchemaVersion < 1 || session.SchemaVersion > SchemaVersion {
+		return nil, fmt.Errorf("unsupported session schema version %d (this application supports up to %d)", session.SchemaVersion, SchemaVersion)
 	}
 	return &session, nil
 }

@@ -80,6 +80,9 @@ func (s *Settings) Update(change func(*Config) error) (Config, error) {
 	if err := change(&candidate); err != nil {
 		return s.live.clone(), err
 	}
+	if err := validateConfig(candidate); err != nil {
+		return s.live.clone(), fmt.Errorf("invalid configuration change: %w", err)
+	}
 	if s.path != "" {
 		if err := saveConfig(s.path, candidate); err != nil {
 			return s.live.clone(), err

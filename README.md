@@ -144,6 +144,10 @@ are:
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |
 
+The application checks every setting before it starts recording or applies
+retention. Misspelt setting names and unsafe numeric values are reported as a
+start-up error rather than being silently replaced with defaults.
+
 ## Running in the background
 
 The application has no window of its own. It sits in the Windows notification

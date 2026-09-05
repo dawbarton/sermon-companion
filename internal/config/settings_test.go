@@ -101,3 +101,28 @@ func TestGetDoesNotShareState(t *testing.T) {
 		t.Fatal("retention is shared with the caller")
 	}
 }
+
+func TestSettingsRejectInvalidChangesBeforeSaving(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	settings, err := LoadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Update(func(c *Config) error {
+		c.Capture.BufferSecs = 1_000_000
+		return nil
+	}); err == nil {
+		t.Fatal("invalid live configuration was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("invalid change altered config.json")
+	}
+}

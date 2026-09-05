@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,42 @@ func TestMasteringGapAndPeakLimitDefaults(t *testing.T) {
 	}
 	if ClampGapSeconds(-5) != 0 {
 		t.Fatalf("ClampGapSeconds(-5) = %g", ClampGapSeconds(-5))
+	}
+}
+
+func TestConfigRejectsUnknownFieldsAndTrailingValues(t *testing.T) {
+	for name, contents := range map[string]string{
+		"unknown field": `{"retentionDay":0}`,
+		"second value":  `{} {}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadOrCreateConfig(path); err == nil {
+				t.Fatal("invalid configuration was accepted")
+			}
+		})
+	}
+}
+
+func TestConfigRejectsUnsafeNumericRanges(t *testing.T) {
+	for name, contents := range map[string]string{
+		"retention overflow": `{"retentionDays":1000000}`,
+		"capture allocation": `{"capture":{"bufferSeconds":1000000}}`,
+		"invalid loudness":   `{"mastering":{"integratedLUFS":-100}}`,
+		"invalid port":       `{"listen":"127.0.0.1:99999"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadOrCreateConfig(path)
+			if err == nil || !strings.Contains(err.Error(), "config") {
+				t.Fatalf("LoadOrCreateConfig() error = %v", err)
+			}
+		})
 	}
 }

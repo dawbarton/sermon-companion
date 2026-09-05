@@ -61,7 +61,8 @@ ONE-TIME TECHNICAL SETUP
 
    Save the file and restart the application. Everything else in "capture" is
    already correct: 48000 Hz, 2 channels, 20 ms periods, and 10 seconds of
-   buffer.
+   buffer. Setting names and numeric ranges are checked at start-up; a typo is
+   shown as an error instead of being silently ignored.
 
 5. Make a short test recording. Confirm that the review page plays the expected
    church mix, not a microphone or silent device, and that it reports zero
