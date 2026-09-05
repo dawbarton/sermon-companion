@@ -84,6 +84,11 @@ latency and encoder pacing therefore stay out of the marker positions; an
 elapsed wall-clock estimate placed every mark about half a second ahead of the
 matching audio. This needs FFmpeg 4.4 or later for `-stats_period`.
 
+The fallback is not reported as started until FFmpeg has supplied its first
+valid audio position and the `capture.started` transaction is durable. A final
+FFprobe check is part of capture integrity: an unreadable output is a failed
+capture, not a successful recording with an estimated duration.
+
 The PCM queue defaults to ten seconds. If it fills, capture stops and the session
 is marked failed rather than silently dropping samples. A completed capture is
 published only when all accepted frames were written to the encoder. Session
@@ -194,6 +199,11 @@ ignored. Adjusting a segment records its previous value and the requested
 change. Exports are first written under a private work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
+
+Start-up recovery checks both the published `audio.flac` and the staging
+`audio.part.flac`. It retains whichever valid recording exists, repairs the
+snapshot's filename and duration, and reports missing or unprobeable audio
+explicitly rather than inventing a wall-clock duration.
 
 A lossless recording is roughly 500 MB for a service, so the application applies
 a retention period at start-up: a session directory is deleted outright once the

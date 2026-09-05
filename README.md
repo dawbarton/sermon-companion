@@ -67,6 +67,10 @@ If the device list shows **⚠ Not connected**, the device chosen last time is n
 there now. Pick the right one from the list before starting; recording will not
 begin against a device that is missing.
 
+The dock keeps a recording failure visible until the next recording starts
+successfully. A recording is shown as started only after the capture process has
+reported audio and the session metadata has been saved.
+
 ## Reviewing and creating the MP3
 
 Choose the service in the list on the left. Then:

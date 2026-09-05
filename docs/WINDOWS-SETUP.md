@@ -121,7 +121,9 @@ indefinitely.
 
 If the dock displays a recording problem or any dropped frames, retain the
 partial recording but do not assume it is complete. Give `capture.log` and the
-session folder to the person maintaining the installation.
+session folder to the person maintaining the installation. The error remains in
+the dock until a later recording starts successfully, so it cannot disappear
+between status polls.
 
 The messages that a console window used to show are on the log page, reached
 from "Show log" in the notification-area icon's menu or from the bottom of the

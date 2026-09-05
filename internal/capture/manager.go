@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,10 +18,13 @@ import (
 )
 
 type Manager struct {
-	settings *config.Settings
-	store    *store.Store
-	mu       sync.Mutex
-	run      *running
+	settings    *config.Settings
+	store       *store.Store
+	mu          sync.Mutex
+	run         *running
+	lastError   string
+	startNative func(config.Config, string, *os.File) (activeCapture, error)
+	startFFmpeg func(config.Config, string, *os.File) (activeCapture, error)
 }
 
 type running struct {
@@ -33,7 +37,7 @@ type running struct {
 }
 
 func New(settings *config.Settings, sessions *store.Store) *Manager {
-	return &Manager{settings: settings, store: sessions}
+	return &Manager{settings: settings, store: sessions, startNative: startMiniaudioCapture, startFFmpeg: startFFmpegCapture}
 }
 
 // Settings exposes the live configuration so that a caller can read the chosen
@@ -49,18 +53,20 @@ func (m *Manager) RecoverInterrupted() error {
 	for index := range sessions {
 		session := &sessions[index]
 		if session.Status == "recording" || session.Status == "starting" {
-			dir, _ := m.store.SessionDir(session.ID)
-			duration := session.Duration
-			if measured, probeErr := probeDuration(c.FFprobe, filepath.Join(dir, session.AudioFile)); probeErr == nil {
-				duration = measured
-			}
+			duration, audioFile, recoveryError := recoverRecording(c.FFprobe, m.store, session)
 			rate := sampleRate(session, c.Capture.SampleRate)
 			frames := uint64(duration*float64(rate) + 0.5)
 			ended := time.Now().UTC()
-			_, updateErr := m.store.Update(session.ID, "capture.recovered_after_interruption", map[string]any{"durationSeconds": duration, "totalFrames": frames}, func(s *store.Session) error {
+			_, updateErr := m.store.Update(session.ID, "capture.recovered_after_interruption", map[string]any{"durationSeconds": duration, "totalFrames": frames, "audioFile": audioFile, "error": recoveryError}, func(s *store.Session) error {
 				s.Status, s.EndedAt, s.Duration = "interrupted", &ended, duration
-				s.Capture.TotalFrames = frames
-				s.Error = "The application stopped before the recording was closed normally; the captured audio was retained."
+				if frames > 0 {
+					s.Capture.TotalFrames, s.Capture.WrittenFrames = frames, frames
+					s.Capture.AudioDuration = duration
+				}
+				if audioFile != "" {
+					s.AudioFile = audioFile
+				}
+				s.Error = recoveryError
 				closeOpenSegments(s, Position{Frames: frames, Seconds: duration, Estimated: true}, ended)
 				return nil
 			})
@@ -134,21 +140,21 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 	partPath, finalPath := filepath.Join(dir, "audio.part.flac"), filepath.Join(dir, "audio.flac")
 	logFile, err := os.OpenFile(filepath.Join(dir, "capture.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
+		m.recordStartFailure(session.ID, err)
 		return nil, err
 	}
 	var active activeCapture
 	if strings.EqualFold(c.Capture.Backend, "miniaudio") {
-		active, err = startMiniaudioCapture(c, partPath, logFile)
+		active, err = m.startNative(c, partPath, logFile)
 	} else {
-		active, err = startFFmpegCapture(c, partPath, logFile)
+		active, err = m.startFFmpeg(c, partPath, logFile)
 	}
 	if err != nil {
 		logFile.Close()
-		_, _ = m.store.Update(session.ID, "capture.failed", map[string]any{"error": err.Error()}, func(s *store.Session) error { s.Status = "failed"; s.Error = err.Error(); return nil })
+		m.recordStartFailure(session.ID, err)
 		return nil, err
 	}
 	run := &running{id: session.ID, capture: active, log: logFile, partPath: partPath, path: finalPath, finished: make(chan struct{})}
-	m.run = run
 	info := active.Info()
 	updated, err := m.store.Update(session.ID, "capture.started", info, func(s *store.Session) error {
 		s.Status, s.Capture = "recording", info
@@ -156,8 +162,21 @@ func (m *Manager) Start(title string) (*store.Session, error) {
 	})
 	if err != nil {
 		active.Stop()
+		select {
+		case <-active.Done():
+		case <-time.After(15 * time.Second):
+			_ = active.Abort()
+			select {
+			case <-active.Done():
+			case <-time.After(5 * time.Second):
+			}
+		}
+		_ = logFile.Close()
+		m.recordStartFailure(session.ID, fmt.Errorf("save recording start: %w", err))
 		return nil, err
 	}
+	m.run = run
+	m.lastError = ""
 	go m.wait(run)
 	return updated, nil
 }
@@ -182,7 +201,7 @@ func (m *Manager) wait(run *running) {
 	if duration == 0 && result.Info.SampleRate > 0 {
 		duration = float64(result.Info.TotalFrames) / float64(result.Info.SampleRate)
 	}
-	_, _ = m.store.Update(run.id, "capture.exited", map[string]any{"error": errText, "capture": result.Info}, func(s *store.Session) error {
+	_, updateErr := m.store.Update(run.id, "capture.exited", map[string]any{"error": errText, "capture": result.Info}, func(s *store.Session) error {
 		s.Status, s.Error, s.EndedAt, s.Duration, s.Capture = status, errText, &ended, duration, result.Info
 		closeOpenSegments(s, Position{Frames: result.Info.TotalFrames, Seconds: duration}, ended)
 		if filepath.Base(audioPath) == "audio.flac" {
@@ -190,9 +209,17 @@ func (m *Manager) wait(run *running) {
 		}
 		return nil
 	})
+	if updateErr != nil {
+		log.Printf("save completed capture %s: %v", run.id, updateErr)
+	}
 	m.mu.Lock()
 	if m.run == run {
 		m.run = nil
+	}
+	if updateErr != nil {
+		m.lastError = fmt.Sprintf("Recording ended, but its session details could not be saved: %v. Review the session folder and restart Sermon Companion.", updateErr)
+	} else if errText != "" {
+		m.lastError = "Recording stopped because of a capture problem: " + errText
 	}
 	m.mu.Unlock()
 	close(run.finished)
@@ -218,9 +245,66 @@ func (m *Manager) Stop() (*store.Session, error) {
 	select {
 	case <-run.finished:
 	case <-time.After(15 * time.Second):
-		return nil, errors.New("capture did not stop within fifteen seconds")
+		abortErr := run.capture.Abort()
+		select {
+		case <-run.finished:
+		case <-time.After(5 * time.Second):
+			return nil, errors.Join(errors.New("capture did not stop within twenty seconds"), abortErr)
+		}
 	}
 	return m.store.Get(run.id)
+}
+
+// LastError returns a capture failure that still needs the operator's
+// attention. A successful recording start clears it.
+func (m *Manager) LastError() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastError
+}
+
+func (m *Manager) recordStartFailure(id string, cause error) {
+	message := cause.Error()
+	if _, err := m.store.Update(id, "capture.failed", map[string]any{"error": message}, func(s *store.Session) error {
+		s.Status, s.Error = "failed", message
+		return nil
+	}); err != nil {
+		log.Printf("save capture start failure for %s: %v", id, err)
+		message = fmt.Sprintf("%s (the failure could not be saved: %v)", message, err)
+	}
+	m.lastError = "Recording could not start: " + message
+}
+
+func recoverRecording(ffprobe string, sessions *store.Store, session *store.Session) (duration float64, audioFile, message string) {
+	candidates := []string{"audio.flac", session.AudioFile, "audio.part.flac"}
+	seen := map[string]bool{}
+	var probeError error
+	for _, candidate := range candidates {
+		candidate = filepath.ToSlash(strings.TrimSpace(candidate))
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		path, err := sessions.SessionFile(session.ID, candidate)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			continue
+		}
+		if audioFile == "" {
+			audioFile = candidate
+		}
+		if measured, err := probeDuration(ffprobe, path); err == nil {
+			return measured, candidate, "The application stopped before the recording was closed normally; the captured audio was retained."
+		} else {
+			probeError = err
+		}
+	}
+	if audioFile != "" {
+		return session.Duration, audioFile, fmt.Sprintf("The application stopped before the recording was closed normally. The audio file was retained, but its duration could not be verified: %v", probeError)
+	}
+	return session.Duration, "", "The application stopped before the recording was closed normally, and its audio file could not be found. Check the session folder and log."
 }
 
 func closeOpenSegments(session *store.Session, position Position, now time.Time) {

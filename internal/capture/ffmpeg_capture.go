@@ -2,6 +2,7 @@ package capture
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -30,7 +31,9 @@ type ffmpegCapture struct {
 	started      time.Time
 	partPath     string
 	stopOnce     sync.Once
-	progressDone chan struct{}
+	first        chan struct{}
+	firstOnce    sync.Once
+	progressDone chan error
 	done         chan captureResult
 }
 
@@ -58,18 +61,38 @@ func startFFmpegCapture(c config.Config, partPath string, logFile *os.File) (act
 	}
 	capture := &ffmpegCapture{
 		config: c, cmd: command, stdin: stdin, clock: newFrameClock(c.Capture.SampleRate),
-		started: time.Now(), partPath: partPath, progressDone: make(chan struct{}), done: make(chan captureResult, 1),
+		started: time.Now(), partPath: partPath, first: make(chan struct{}), progressDone: make(chan error, 1), done: make(chan captureResult, 1),
 	}
 	go capture.readProgress(progress)
 	go capture.wait()
-	return capture, nil
+	select {
+	case <-capture.first:
+		return capture, nil
+	case result := <-capture.done:
+		if result.Error == nil {
+			result.Error = errors.New("FFmpeg capture stopped before reporting an audio position")
+		}
+		return nil, result.Error
+	case <-time.After(5 * time.Second):
+		timeout := errors.New("FFmpeg capture supplied no audio position within five seconds")
+		capture.Stop()
+		select {
+		case <-capture.done:
+		case <-time.After(5 * time.Second):
+			_ = capture.Abort()
+			select {
+			case <-capture.done:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		return nil, timeout
+	}
 }
 
 // readProgress anchors the capture clock to the audio position FFmpeg reports,
 // so device start-up latency and encoder pacing cannot leak into the marker
 // positions the way an elapsed wall-clock estimate does.
 func (c *ffmpegCapture) readProgress(progress io.Reader) {
-	defer close(c.progressDone)
 	scanner := bufio.NewScanner(progress)
 	for scanner.Scan() {
 		key, value, found := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
@@ -82,17 +105,22 @@ func (c *ffmpegCapture) readProgress(progress io.Reader) {
 		}
 		frames := uint64(math.Round(float64(microseconds) / 1e6 * float64(c.config.Capture.SampleRate)))
 		c.clock.acceptTotal(frames, time.Now())
+		c.firstOnce.Do(func() { close(c.first) })
 	}
-	_, _ = io.Copy(io.Discard, progress)
+	c.progressDone <- scanner.Err()
+	close(c.progressDone)
 }
 
 func (c *ffmpegCapture) wait() {
-	<-c.progressDone
-	err := c.cmd.Wait()
+	progressErr := <-c.progressDone
+	commandErr := c.cmd.Wait()
 	wall := time.Since(c.started).Seconds()
-	duration := wall
-	if measured, probeErr := probeDuration(c.config.FFprobe, c.partPath); probeErr == nil {
+	duration := c.clock.latest().Seconds
+	probeErr := error(nil)
+	if measured, err := probeDuration(c.config.FFprobe, c.partPath); err == nil {
 		duration = measured
+	} else {
+		probeErr = fmt.Errorf("verify captured FLAC duration: %w", err)
 	}
 	frames := uint64(duration*float64(c.config.Capture.SampleRate) + 0.5)
 	info := c.Info()
@@ -101,7 +129,7 @@ func (c *ffmpegCapture) wait() {
 	if wall > 0 {
 		info.ClockDriftPPM = (duration - wall) / wall * 1_000_000
 	}
-	c.done <- captureResult{Info: info, PartPath: c.partPath, Error: err}
+	c.done <- captureResult{Info: info, PartPath: c.partPath, Error: errors.Join(progressErr, commandErr, probeErr)}
 	close(c.done)
 }
 
@@ -115,6 +143,12 @@ func (c *ffmpegCapture) Stop() {
 		_, _ = io.WriteString(c.stdin, "q\n")
 		_ = c.stdin.Close()
 	})
+}
+func (c *ffmpegCapture) Abort() error {
+	if c.cmd == nil || c.cmd.Process == nil {
+		return nil
+	}
+	return c.cmd.Process.Kill()
 }
 func (c *ffmpegCapture) Done() <-chan captureResult { return c.done }
 func (c *ffmpegCapture) Info() store.CaptureInfo {

@@ -103,7 +103,7 @@ function flash(button, text, milliseconds = 1800) {
 
 async function refresh() {
   const wasActive = status.active;
-  try { status = await api("/api/status"); pollError = ""; renderError(); render(); }
+  try { status = await api("/api/status"); pollError = status.captureError || ""; renderError(); render(); }
   catch (error) { pollError = error.message; renderError(); return; }
   // A device can be plugged in or taken away while a service is recorded, so
   // the list is read again once the dock returns to its idle state.

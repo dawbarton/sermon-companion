@@ -17,5 +17,6 @@ type activeCapture interface {
 	Latest() Position
 	Info() store.CaptureInfo
 	Stop()
+	Abort() error
 	Done() <-chan captureResult
 }

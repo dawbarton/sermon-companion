@@ -158,7 +158,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 			session.Capture = captureInfo
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": position.Seconds, "framePosition": position.Frames, "capture": captureInfo, "session": session, "presets": s.settings.Get().Presets})
+	writeJSON(w, http.StatusOK, map[string]any{"active": active, "elapsedSeconds": position.Seconds, "framePosition": position.Frames, "capture": captureInfo, "captureError": s.capture.LastError(), "session": session, "presets": s.settings.Get().Presets})
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {

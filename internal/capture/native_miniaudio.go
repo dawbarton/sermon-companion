@@ -46,6 +46,7 @@ type nativeCapture struct {
 	queuedFrames atomic.Uint64
 	highWater    atomic.Uint64
 	started      time.Time
+	encoder      *exec.Cmd
 }
 
 func startMiniaudioCapture(c config.Config, partPath string, logFile *os.File) (activeCapture, error) {
@@ -76,6 +77,7 @@ func startMiniaudioCapture(c config.Config, partPath string, logFile *os.File) (
 
 	encoderArgs := []string{"-hide_banner", "-nostdin", "-y", "-f", "s16le", "-ar", strconv.Itoa(c.Capture.SampleRate), "-ac", strconv.Itoa(c.Capture.Channels), "-i", "pipe:0", "-vn", "-c:a", "flac", "-compression_level", "5", "-f", "flac", partPath}
 	encoder := proc.Command(c.FFmpeg, encoderArgs...)
+	native.encoder = encoder
 	stdin, err := encoder.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("open FLAC encoder input: %w", err)
@@ -253,8 +255,14 @@ func (n *nativeCapture) signalFailure(err error) {
 func (n *nativeCapture) PositionAt(at time.Time) Position {
 	return n.clock.positionAt(at, 250*time.Millisecond)
 }
-func (n *nativeCapture) Latest() Position           { return n.clock.latest() }
-func (n *nativeCapture) Stop()                      { n.stopOnce.Do(func() { close(n.stop) }) }
+func (n *nativeCapture) Latest() Position { return n.clock.latest() }
+func (n *nativeCapture) Stop()            { n.stopOnce.Do(func() { close(n.stop) }) }
+func (n *nativeCapture) Abort() error {
+	if n.encoder == nil || n.encoder.Process == nil {
+		return nil
+	}
+	return n.encoder.Process.Kill()
+}
 func (n *nativeCapture) Done() <-chan captureResult { return n.done }
 
 func (n *nativeCapture) Info() store.CaptureInfo {
