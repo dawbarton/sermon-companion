@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
+	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
@@ -264,7 +264,7 @@ func printableCommand(program string, args []string) string {
 }
 
 func probeDuration(program, path string) (float64, error) {
-	command := exec.Command(program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
+	command := proc.Command(program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
 	var output bytes.Buffer
 	command.Stdout, command.Stderr = &output, &output
 	if err := command.Run(); err != nil {

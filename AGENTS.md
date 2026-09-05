@@ -81,6 +81,12 @@ changing user-visible behaviour or deployment.
   application deliberately does not attach to a console: output written to an
   interactive prompt arrives after that prompt has been redrawn and lands on top
   of it. Redirected output still works and is what the release workflow checks.
+- Start every child process through `internal/proc`, never `os/exec` directly.
+  A console program spawned by a windowless application gets a console window of
+  its own on Windows, which put an empty terminal in front of the operator at the
+  start of a recording and stopped the recording when they closed it. The
+  exception is the windowed shell launcher that opens a folder or a page, whose
+  window is the point of running it.
 - Standard error is not connected on Windows. Never place it first in an
   `io.MultiWriter` with the log, or ahead of anything that matters: that writer
   stops at its first failure, which silently cost the log every message it
@@ -128,6 +134,8 @@ from the log page, and from `--version` when its output is redirected.
 - `internal/applog`: rolling log file and the bounded tail the log page shows.
 - `internal/capture`: miniaudio source, bounded PCM buffering, audio-frame clock,
   FLAC encoder lifecycle, device enumeration, and explicit FFmpeg fallback.
+- `internal/proc`: child-process start-up, hiding the console window Windows
+  would otherwise give FFmpeg and FFprobe.
 - `internal/store`: versioned session model, atomic snapshot persistence,
   append-only event journal, and segment invariants.
 - `internal/app`: loopback HTTP API and embedded dock/manager UI.

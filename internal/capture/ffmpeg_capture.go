@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
+	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
@@ -41,7 +42,7 @@ func startFFmpegCapture(c config.Config, partPath string, logFile *os.File) (act
 	args := []string{"-hide_banner", "-y", "-stats_period", progressPeriod, "-progress", "pipe:1"}
 	args = append(args, inputArgs...)
 	args = append(args, "-map", "0:a:0", "-vn", "-ac", strconv.Itoa(c.Capture.Channels), "-ar", strconv.Itoa(c.Capture.SampleRate), "-c:a", "flac", "-compression_level", "5", "-f", "flac", partPath)
-	command := exec.Command(c.FFmpeg, args...)
+	command := proc.Command(c.FFmpeg, args...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, err

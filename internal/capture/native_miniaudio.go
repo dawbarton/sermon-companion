@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
+	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 	"github.com/gen2brain/malgo"
 )
@@ -74,7 +75,7 @@ func startMiniaudioCapture(c config.Config, partPath string, logFile *os.File) (
 	}
 
 	encoderArgs := []string{"-hide_banner", "-nostdin", "-y", "-f", "s16le", "-ar", strconv.Itoa(c.Capture.SampleRate), "-ac", strconv.Itoa(c.Capture.Channels), "-i", "pipe:0", "-vn", "-c:a", "flac", "-compression_level", "5", "-f", "flac", partPath}
-	encoder := exec.Command(c.FFmpeg, encoderArgs...)
+	encoder := proc.Command(c.FFmpeg, encoderArgs...)
 	stdin, err := encoder.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("open FLAC encoder input: %w", err)

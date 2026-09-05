@@ -9,6 +9,13 @@ reaches the log page and closes the application, stopping any recording safely
 first. The Windows executable is linked with `-H=windowsgui` so that no console
 window appears.
 
+Having no console of its own means a child console program is given one: without
+a request to the contrary Windows creates a console window for FFmpeg, so an
+empty black window appeared whenever a recording started, and closing it ended
+the recording. Helper programs are therefore started through `internal/proc`,
+which adds `CREATE_NO_WINDOW`. The shell launchers that open a folder or a page
+are windowed programs and are deliberately left alone.
+
 A windowless process is not waited for by the shell that started it, so writing
 to an interactive prompt lands on top of a prompt that has already been redrawn.
 The application therefore does not attach itself to a console. `--version` and

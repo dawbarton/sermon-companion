@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
+	"github.com/dawbarton/sermon-companion/internal/proc"
 )
 
 type Device struct {
@@ -55,7 +55,7 @@ func PrintDevices(c config.Config, output io.Writer) error {
 		}
 		return nil
 	}
-	command := exec.Command(c.FFmpeg, DeviceListArgs()...)
+	command := proc.Command(c.FFmpeg, DeviceListArgs()...)
 	command.Stdout, command.Stderr = output, output
 	_ = command.Run() // Device-list commands conventionally return a non-zero status after listing.
 	return nil

@@ -840,6 +840,10 @@ func kindFromLabel(label string) string {
 	return strings.TrimRight(out.String(), "-")
 }
 
+// openFolder hands a directory to the operating system's file manager. These
+// shell launchers are windowed programs rather than console ones, so unlike
+// FFmpeg they need no internal/proc: hiding their window would hide the very
+// window the operator asked for.
 func openFolder(path string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {

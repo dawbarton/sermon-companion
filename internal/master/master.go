@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/dawbarton/sermon-companion/internal/config"
+	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
@@ -317,7 +317,7 @@ func parseMeasurement(output []byte) (measurement, error) {
 }
 
 func runCapture(program string, args []string, dir string, logFile *os.File) ([]byte, error) {
-	cmd := exec.Command(program, args...)
+	cmd := proc.Command(program, args...)
 	cmd.Dir = dir
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
@@ -330,7 +330,7 @@ func runCapture(program string, args []string, dir string, logFile *os.File) ([]
 }
 
 func runLogged(program string, args []string, dir string, logFile *os.File) error {
-	cmd := exec.Command(program, args...)
+	cmd := proc.Command(program, args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, logFile, logFile
 	return cmd.Run()
 }

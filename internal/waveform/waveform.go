@@ -11,11 +11,11 @@ import (
 	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
 
+	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
 
@@ -119,7 +119,7 @@ func readCache(path string, source os.FileInfo) (cachedEnvelope, bool) {
 
 func (g *Generator) decode(ctx context.Context, source string, pointRate int) ([]byte, float64, error) {
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-i", source, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", strconv.Itoa(decodeRate), "-f", "s16le", "-c:a", "pcm_s16le", "-"}
-	cmd := exec.CommandContext(ctx, g.ffmpeg, args...)
+	cmd := proc.CommandContext(ctx, g.ffmpeg, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, 0, err
