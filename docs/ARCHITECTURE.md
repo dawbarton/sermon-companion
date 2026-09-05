@@ -78,6 +78,11 @@ frame anchors. The stored frame number is canonical; seconds are derived for the
 browser. Device-clock drift therefore cannot accumulate between a marker and the
 recorded file.
 
+Review edits are converted to frames at the recording's sample rate before
+snapping, bounds checks, ordering, and overlap validation. The displayed seconds
+are then regenerated from those frames. This prevents two intervals that only
+appear to touch after decimal rounding from overlapping by one or more samples.
+
 The fallback FFmpeg backend has no callback, so it anchors the same clock to the
 audio position FFmpeg reports through `-progress` every 200 ms. Device start-up
 latency and encoder pacing therefore stay out of the marker positions; an

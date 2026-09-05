@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -169,15 +170,39 @@ func TestSegmentAPIRejectsOverlapsAndAllowsTouchingBoundaries(t *testing.T) {
 	if touching.Segments[1].Start != 20 {
 		t.Fatalf("touching boundary was not accepted: %#v", touching.Segments)
 	}
+	rounded := requestSession(t, handler, http.MethodPatch, "/api/sessions/"+session.ID+"/segments/"+secondID, `{"startSeconds":20.05,"endSeconds":40}`)
+	if rounded.Segments[1].StartFrame != *rounded.Segments[0].EndFrame || rounded.Segments[1].Start != *rounded.Segments[0].End {
+		t.Fatalf("rounded boundary was not snapped in the frame domain: %#v", rounded.Segments)
+	}
 
 	_, err = sessions.Update(session.ID, "test.force_overlap", nil, func(s *store.Session) error {
 		s.Segments[1].Start = 19
+		s.Segments[1].StartFrame = 19 * 48_000
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/export", `{}`, http.StatusBadRequest, "overlaps")
+}
+
+func TestStartingSegmentsAtSameFrameCannotCreateTwoOpenSegments(t *testing.T) {
+	now := time.Now()
+	session := &store.Session{Segments: []store.Segment{{ID: "first", Label: "First", StartFrame: 48_000, Start: 1, CreatedAt: now, UpdatedAt: now}}}
+	position := capture.Position{Frames: 48_000, Seconds: 1}
+	if err := closeOpenSegmentsForNext(session, position, now); !errors.Is(err, errRecordingNotAdvanced) {
+		t.Fatalf("same-frame start error = %v", err)
+	}
+	if session.Segments[0].EndFrame != nil {
+		t.Fatal("same-frame request created a zero-length segment")
+	}
+	position = capture.Position{Frames: 48_001, Seconds: float64(48_001) / 48_000}
+	if err := closeOpenSegmentsForNext(session, position, now); err != nil {
+		t.Fatal(err)
+	}
+	if session.Segments[0].EndFrame == nil || *session.Segments[0].EndFrame != 48_001 {
+		t.Fatalf("segment end = %v", session.Segments[0].EndFrame)
+	}
 }
 
 func requestError(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, wantText string) {

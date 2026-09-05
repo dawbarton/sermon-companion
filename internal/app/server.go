@@ -45,6 +45,8 @@ type Server struct {
 	jobs       map[string]bool
 }
 
+var errRecordingNotAdvanced = errors.New("wait for the recording to advance before starting the next segment")
+
 func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
 	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
 }
@@ -352,13 +354,19 @@ func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, StartFrame: position.Frames, Start: position.Seconds, Include: true, CreatedAt: now, UpdatedAt: now}
 	session, err := s.store.Update(id, "segment.started", segment, func(session *store.Session) error {
-		closeOpenSegments(session, position, now)
+		if err := closeOpenSegmentsForNext(session, position, now); err != nil {
+			return err
+		}
 		session.Segments = append(session.Segments, segment)
 		markExportStale(session)
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		if errors.Is(err, errRecordingNotAdvanced) {
+			writeError(w, http.StatusConflict, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
 	s.writeSession(w, http.StatusCreated, session)
@@ -384,6 +392,10 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("segment label is required"))
 		return
 	}
+	if !finite(request.Start) || !finite(request.End) || request.Start < 0 || request.End <= request.Start {
+		writeError(w, http.StatusBadRequest, errors.New("segment times must satisfy 0 ≤ start < end"))
+		return
+	}
 	include := true
 	if request.Include != nil {
 		include = *request.Include
@@ -403,15 +415,17 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("use the OBS dock to mark segments while recording")
 		}
-		if segment.Start < 0 || *segment.End <= segment.Start {
-			return errors.New("segment times must satisfy 0 ≤ start < end")
-		}
-		if session.Duration > 0 && *segment.End > session.Duration+1 {
+		session.Segments = append(session.Segments, segment)
+		candidate := findSegment(session, segment.ID)
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, boundaryToleranceFrames(rate))
+		snapToRecordingEnd(session, candidate, rate)
+		syncSegmentSeconds(session, s.settings.Get().Capture.SampleRate)
+		if recordingFrames(session, rate) > 0 && *candidate.EndFrame > recordingFrames(session, rate) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
-		session.Segments = append(session.Segments, segment)
-		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
+		if *candidate.EndFrame <= candidate.StartFrame {
+			return errors.New("segment times must satisfy 0 ≤ start < end")
+		}
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -492,24 +506,32 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			segment.Label = strings.TrimSpace(*request.Label)
 		}
 		if request.Start != nil {
+			if !finite(*request.Start) {
+				return errors.New("segment times must be finite")
+			}
 			segment.Start = *request.Start
 			segment.StartFrame = secondsToFrame(*request.Start, sessionSampleRate(session, s.settings.Get().Capture.SampleRate))
 		}
 		if request.End != nil {
+			if !finite(*request.End) {
+				return errors.New("segment times must be finite")
+			}
 			segment.End = floatPointer(*request.End)
 			segment.EndFrame = uint64Pointer(secondsToFrame(*request.End, sessionSampleRate(session, s.settings.Get().Capture.SampleRate)))
 		}
 		if request.Include != nil {
 			segment.Include = *request.Include
 		}
-		if segment.Start < 0 || segment.End == nil || *segment.End <= segment.Start {
+		if segment.Start < 0 || segment.End == nil || segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
 			return errors.New("segment times must satisfy 0 ≤ start < end")
 		}
-		if session.Duration > 0 && *segment.End > session.Duration+1 {
+		rate := sessionSampleRate(session, s.settings.Get().Capture.SampleRate)
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, boundaryToleranceFrames(rate))
+		snapToRecordingEnd(session, segment, rate)
+		syncSegmentSeconds(session, s.settings.Get().Capture.SampleRate)
+		if recordingFrames(session, rate) > 0 && *segment.EndFrame > recordingFrames(session, rate) {
 			return fmt.Errorf("segment ends beyond the recording (%.1f seconds)", session.Duration)
 		}
-		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -567,8 +589,9 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 			return errors.New("removed segment not found")
 		}
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
-		store.SnapSegmentBoundaries(session.Segments, segment.ID, 0.051)
-		syncSegmentFrames(session, s.settings.Get().Capture.SampleRate)
+		rate := sessionSampleRate(session, s.settings.Get().Capture.SampleRate)
+		store.SnapSegmentBoundaries(session.Segments, segment.ID, boundaryToleranceFrames(rate))
+		syncSegmentSeconds(session, rate)
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
@@ -769,6 +792,17 @@ func closeOpenSegments(session *store.Session, position capture.Position, now ti
 	}
 }
 
+func closeOpenSegmentsForNext(session *store.Session, position capture.Position, now time.Time) error {
+	for index := range session.Segments {
+		open := &session.Segments[index]
+		if !open.Archived && open.EndFrame == nil && position.Frames <= open.StartFrame {
+			return errRecordingNotAdvanced
+		}
+	}
+	closeOpenSegments(session, position, now)
+	return nil
+}
+
 func findSegment(session *store.Session, id string) *store.Segment {
 	for i := range session.Segments {
 		if session.Segments[i].ID == id {
@@ -798,17 +832,42 @@ func secondsToFrame(seconds float64, sampleRate int) uint64 {
 	return uint64(math.Round(seconds * float64(sampleRate)))
 }
 
-func syncSegmentFrames(session *store.Session, fallbackRate int) {
+func syncSegmentSeconds(session *store.Session, fallbackRate int) {
 	rate := sessionSampleRate(session, fallbackRate)
 	for index := range session.Segments {
 		segment := &session.Segments[index]
-		segment.StartFrame = secondsToFrame(segment.Start, rate)
-		if segment.End == nil {
-			segment.EndFrame = nil
+		segment.Start = float64(segment.StartFrame) / float64(rate)
+		if segment.EndFrame == nil {
+			segment.End = nil
 		} else {
-			segment.EndFrame = uint64Pointer(secondsToFrame(*segment.End, rate))
+			segment.End = floatPointer(float64(*segment.EndFrame) / float64(rate))
 		}
 	}
+}
+
+func finite(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
+
+func boundaryToleranceFrames(rate int) uint64 { return secondsToFrame(0.051, rate) }
+
+func recordingFrames(session *store.Session, rate int) uint64 {
+	if session.Capture.TotalFrames > 0 {
+		return session.Capture.TotalFrames
+	}
+	return secondsToFrame(session.Duration, rate)
+}
+
+func snapToRecordingEnd(session *store.Session, segment *store.Segment, rate int) {
+	end := recordingFrames(session, rate)
+	if segment.EndFrame != nil && end > 0 && frameDistance(*segment.EndFrame, end) <= boundaryToleranceFrames(rate) {
+		*segment.EndFrame = end
+	}
+}
+
+func frameDistance(a, b uint64) uint64 {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 func markExportStale(session *store.Session) {

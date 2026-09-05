@@ -342,7 +342,7 @@ func exportSegments(all []store.Segment) []store.Segment {
 			segments = append(segments, segment)
 		}
 	}
-	sort.SliceStable(segments, func(i, j int) bool { return segments[i].Start < segments[j].Start })
+	sort.SliceStable(segments, func(i, j int) bool { return segments[i].StartFrame < segments[j].StartFrame })
 	return segments
 }
 
