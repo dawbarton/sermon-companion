@@ -41,7 +41,9 @@ func TestDeletingAServiceRemovesItsFolderAndRefusesWhileRecording(t *testing.T) 
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/api/sessions/"+session.ID, nil))
+	request := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+session.ID, nil)
+	setCurrentRevisionHeader(t, handler, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

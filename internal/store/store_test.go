@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,6 +263,37 @@ func TestStoreRejectsJournalAheadWithoutCandidate(t *testing.T) {
 	appendEventForTest(t, filepath.Join(dir, journalName), Event{Sequence: session.Revision + 1, At: time.Now(), Type: "test.orphaned", SessionID: session.ID})
 	if _, err := sessions.Get(session.ID); err == nil {
 		t.Fatal("journal ahead of its snapshot was accepted")
+	}
+}
+
+func TestUpdateAtRevisionRejectsStaleWriter(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Original", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := session.Revision
+	if _, err := sessions.UpdateAtRevision(session.ID, &expected, "test.first", nil, func(s *Session) error {
+		s.Title = "First"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.UpdateAtRevision(session.ID, &expected, "test.stale", nil, func(s *Session) error {
+		s.Title = "Stale"
+		return nil
+	}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale update error = %v", err)
+	}
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "First" {
+		t.Fatalf("stale writer changed title to %q", stored.Title)
 	}
 }
 

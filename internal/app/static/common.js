@@ -1,9 +1,13 @@
 "use strict";
 window.SC = {
   async api(path, options = {}) {
-    const response = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
+    const response = await fetch(path, {...options, headers: {"Content-Type": "application/json", ...(options.headers || {})}});
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(body.error || `Request failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
     return body;
   },
   formatTime(seconds, tenths = false) {
@@ -25,4 +29,3 @@ window.SC = {
     return result;
   }
 };
-

@@ -1,0 +1,55 @@
+name: Continuous integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unix:
+    name: Go, race, vet, and browser checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./... -count=1
+      - run: go test -race ./... -count=1
+      - run: go vet ./...
+      - run: node --check internal/app/static/common.js
+      - run: node --check internal/app/static/review.js
+      - run: node --check internal/app/static/dock.js
+      - run: node --check internal/app/static/log.js
+      - run: git diff --check
+
+  windows:
+    name: Windows native-capture tests
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up the UCRT64 C compiler
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Test with native capture enabled
+        shell: pwsh
+        env:
+          CC: ${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin\gcc.exe
+          CGO_ENABLED: "1"
+        run: go test ./... -count=1

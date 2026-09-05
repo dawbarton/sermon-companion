@@ -109,6 +109,10 @@ The MP3 is named after the service date and church, for example
 `exports/previous` folder. Changing anything after the MP3 has been created
 marks it out of date, so it is clear that it needs making again.
 
+If the same service is open in two browser tabs, a save from an older view is
+refused and that tab reloads the latest values. It never silently overwrites a
+newer edit.
+
 ## Where the files are kept
 
 Recordings and settings live outside the application folder, in:

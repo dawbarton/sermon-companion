@@ -22,6 +22,8 @@ type Store struct {
 	problems map[string]string
 }
 
+var ErrRevisionConflict = errors.New("session revision conflict")
+
 func New(root string) (*Store, error) {
 	if root == "" {
 		return nil, errors.New("data directory is required")
@@ -101,11 +103,27 @@ func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 // journal and its exports. Retention is the only caller: a service is kept on
 // this machine only until its MP3 has been published elsewhere.
 func (s *Store) Delete(id string) error {
+	return s.DeleteAtRevision(id, nil)
+}
+
+// DeleteAtRevision removes a session only if the caller saw its current
+// revision. Retention passes nil because it makes its decision from the store
+// while no operator request is involved.
+func (s *Store) DeleteAtRevision(id string, expected *int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	dir, err := s.SessionDir(id)
 	if err != nil {
 		return err
+	}
+	if expected != nil {
+		session, err := s.getLocked(id)
+		if err != nil {
+			return err
+		}
+		if session.Revision != *expected {
+			return fmt.Errorf("%w: expected %d, current %d", ErrRevisionConflict, *expected, session.Revision)
+		}
 	}
 	return os.RemoveAll(dir)
 }
@@ -160,11 +178,21 @@ func (s *Store) Problems() []string {
 }
 
 func (s *Store) Update(id, eventType string, payload interface{}, mutate func(*Session) error) (*Session, error) {
+	return s.UpdateAtRevision(id, nil, eventType, payload, mutate)
+}
+
+// UpdateAtRevision applies a mutation only if expected is nil or matches the
+// current snapshot. HTTP clients use it to prevent a late save from silently
+// overwriting a newer edit; internal lifecycle operations pass nil via Update.
+func (s *Store) UpdateAtRevision(id string, expected *int64, eventType string, payload interface{}, mutate func(*Session) error) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, err := s.getLocked(id)
 	if err != nil {
 		return nil, err
+	}
+	if expected != nil && session.Revision != *expected {
+		return nil, fmt.Errorf("%w: expected %d, current %d", ErrRevisionConflict, *expected, session.Revision)
 	}
 	if err := mutate(session); err != nil {
 		return nil, err

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -233,6 +234,7 @@ func (s *Server) writeSession(w http.ResponseWriter, status int, session *store.
 		gap := c.Master.GapBetweenSegments()
 		session.GapSeconds = &gap
 	}
+	w.Header().Set("ETag", fmt.Sprintf(`"%d"`, session.Revision))
 	writeJSON(w, status, session)
 }
 
@@ -246,16 +248,23 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	id := r.PathValue("id")
-	before, err := s.store.Get(id)
+	_, err = s.store.Get(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	session, err := s.store.Update(id, "session.metadata_updated", map[string]any{"before": map[string]string{"title": before.Title, "church": before.Church}, "requested": request}, func(session *store.Session) error {
+	payload := map[string]any{"requested": request}
+	session, err := s.store.UpdateAtRevision(id, &expected, "session.metadata_updated", payload, func(session *store.Session) error {
 		if session.Export != nil && session.Export.Status == "running" {
 			return errors.New("service details cannot be changed while an MP3 is being created")
 		}
+		payload["before"] = map[string]any{"title": session.Title, "church": session.Church, "gapSeconds": session.GapSeconds}
 		changed := false
 		if request.Title != nil {
 			title := strings.TrimSpace(*request.Title)
@@ -291,10 +300,11 @@ func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
 		if changed {
 			markExportStale(session)
 		}
+		payload["after"] = map[string]any{"title": session.Title, "church": session.Church, "gapSeconds": session.GapSeconds}
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusOK, session)
@@ -311,6 +321,11 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	activeID, _, _, active := s.capture.Active()
 	if (active && activeID == id) || session.Status == "recording" || session.Status == "starting" {
 		writeError(w, http.StatusConflict, errors.New("stop the recording before deleting this service"))
@@ -323,8 +338,12 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to finish before deleting this service"))
 		return
 	}
-	if err := s.store.Delete(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	if err := s.store.DeleteAtRevision(id, &expected); err != nil {
+		if errors.Is(err, store.ErrRevisionConflict) {
+			writeError(w, http.StatusConflict, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
 	log.Printf("deleted service %s (%s) at the operator's request", id, session.Title)
@@ -420,6 +439,11 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("segment times must satisfy 0 ≤ start < end"))
 		return
 	}
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	include := true
 	if request.Include != nil {
 		include = *request.Include
@@ -435,7 +459,8 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 	end := request.End
 	startFrame, endFrame := secondsToFrame(request.Start, rate), secondsToFrame(request.End, rate)
 	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, StartFrame: startFrame, EndFrame: &endFrame, Start: request.Start, End: &end, Include: include, CreatedAt: now, UpdatedAt: now}
-	session, err := s.store.Update(id, "segment.added_manually", segment, func(session *store.Session) error {
+	payload := map[string]any{"requested": segment}
+	session, err := s.store.UpdateAtRevision(id, &expected, "segment.added_manually", payload, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("use the OBS dock to mark segments while recording")
 		}
@@ -456,11 +481,12 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
+		payload["after"] = cloneSegmentValue(*candidate)
 		markExportStale(session)
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusCreated, session)
@@ -509,6 +535,11 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
 	beforeSession, err := s.store.Get(id)
 	if err != nil {
@@ -520,8 +551,8 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("segment not found"))
 		return
 	}
-	beforeCopy := *before
-	session, err := s.store.Update(id, "segment.adjusted", map[string]any{"before": beforeCopy, "requested": request}, func(session *store.Session) error {
+	payload := map[string]any{"requested": request}
+	session, err := s.store.UpdateAtRevision(id, &expected, "segment.adjusted", payload, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be adjusted while recording")
 		}
@@ -529,6 +560,10 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		segment := findSegment(session, segmentID)
+		if segment == nil || segment.Archived {
+			return errors.New("segment not found")
+		}
+		payload["before"] = cloneSegmentValue(*segment)
 		if request.Kind != nil && strings.TrimSpace(*request.Kind) != "" {
 			segment.Kind = strings.TrimSpace(*request.Kind)
 		}
@@ -566,17 +601,23 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		segment.UpdatedAt = time.Now().UTC()
+		payload["after"] = cloneSegmentValue(*segment)
 		markExportStale(session)
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
 	beforeSession, err := s.store.Get(id)
 	if err != nil {
@@ -588,8 +629,8 @@ func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("segment not found"))
 		return
 	}
-	beforeCopy := *before
-	session, err := s.store.Update(id, "segment.archived", beforeCopy, func(session *store.Session) error {
+	payload := map[string]any{}
+	session, err := s.store.UpdateAtRevision(id, &expected, "segment.archived", payload, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be removed while recording")
 		}
@@ -600,20 +641,28 @@ func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
 		if segment == nil || segment.Archived {
 			return errors.New("segment not found")
 		}
+		payload["before"] = cloneSegmentValue(*segment)
 		segment.Archived, segment.UpdatedAt = true, time.Now().UTC()
+		payload["after"] = cloneSegmentValue(*segment)
 		markExportStale(session)
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusOK, session)
 }
 
 func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
 	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
-	session, err := s.store.Update(id, "segment.restored", map[string]string{"segmentId": segmentID}, func(session *store.Session) error {
+	payload := map[string]any{"segmentId": segmentID}
+	session, err := s.store.UpdateAtRevision(id, &expected, "segment.restored", payload, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be restored while recording")
 		}
@@ -624,6 +673,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		if segment == nil || !segment.Archived {
 			return errors.New("removed segment not found")
 		}
+		payload["before"] = cloneSegmentValue(*segment)
 		segment.Archived, segment.UpdatedAt = false, time.Now().UTC()
 		rate := sessionSampleRate(session, s.settings.Get().Capture.SampleRate)
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, boundaryToleranceFrames(rate))
@@ -631,11 +681,12 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
 		}
+		payload["after"] = cloneSegmentValue(*segment)
 		markExportStale(session)
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusOK, session)
@@ -654,6 +705,12 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 	id, position, active := s.capture.MarkPosition(time.Now())
 	at := request.At
 	atFrame := uint64(0)
+	maximumFrame := uint64(0)
+	var expected *int64
+	if at != nil && (!finite(*at) || *at < 0) {
+		writeError(w, http.StatusBadRequest, errors.New("marker time must be a finite, non-negative value"))
+		return
+	}
 	if at == nil {
 		if !active || id != r.PathValue("id") {
 			writeError(w, http.StatusBadRequest, errors.New("atSeconds is required for a finished session"))
@@ -662,15 +719,24 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		at = &position.Seconds
 		atFrame = position.Frames
 	} else {
+		revision, err := requireRevision(r)
+		if err != nil {
+			writeError(w, http.StatusPreconditionRequired, err)
+			return
+		}
+		expected = &revision
 		session, err := s.store.Get(r.PathValue("id"))
 		if err != nil {
 			writeError(w, http.StatusNotFound, errors.New("session not found"))
 			return
 		}
-		atFrame = secondsToFrame(*at, sessionSampleRate(session, s.settings.Get().Capture.SampleRate))
+		rate := sessionSampleRate(session, s.settings.Get().Capture.SampleRate)
+		atFrame = secondsToFrame(*at, rate)
+		*at = float64(atFrame) / float64(rate)
+		maximumFrame = recordingFrames(session, rate)
 	}
-	if *at < 0 {
-		writeError(w, http.StatusBadRequest, errors.New("marker time cannot be negative"))
+	if maximumFrame > 0 && atFrame > maximumFrame {
+		writeError(w, http.StatusBadRequest, errors.New("marker time must fall within the recording"))
 		return
 	}
 	if strings.TrimSpace(request.Label) == "" {
@@ -680,7 +746,7 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		request.Kind = kindFromLabel(request.Label)
 	}
 	marker := store.Marker{ID: store.NewObjectID("mark"), Kind: strings.TrimSpace(request.Kind), Label: strings.TrimSpace(request.Label), AtFrame: atFrame, At: *at, CreatedAt: time.Now().UTC()}
-	session, err := s.store.Update(r.PathValue("id"), "marker.added", marker, func(session *store.Session) error {
+	session, err := s.store.UpdateAtRevision(r.PathValue("id"), expected, "marker.added", marker, func(session *store.Session) error {
 		if err := rejectExportMutation(session); err != nil {
 			return err
 		}
@@ -688,7 +754,7 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeSessionMutationError(w, err)
 		return
 	}
 	s.writeSession(w, http.StatusCreated, session)
@@ -868,6 +934,18 @@ func findSegment(session *store.Session, id string) *store.Segment {
 	return nil
 }
 
+func cloneSegmentValue(segment store.Segment) store.Segment {
+	if segment.EndFrame != nil {
+		endFrame := *segment.EndFrame
+		segment.EndFrame = &endFrame
+	}
+	if segment.End != nil {
+		end := *segment.End
+		segment.End = &end
+	}
+	return segment
+}
+
 func floatPointer(v float64) *float64 { return &v }
 func uint64Pointer(v uint64) *uint64  { return &v }
 
@@ -1020,6 +1098,28 @@ func decodeJSON(r *http.Request, destination interface{}) error {
 		return fmt.Errorf("invalid request: %w", err)
 	}
 	return nil
+}
+
+func requireRevision(r *http.Request) (int64, error) {
+	value := strings.TrimSpace(r.Header.Get("If-Match"))
+	if value == "" {
+		return 0, errors.New("If-Match session revision is required")
+	}
+	value = strings.TrimSpace(strings.TrimPrefix(value, "W/"))
+	value = strings.Trim(value, `"`)
+	revision, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || revision < 0 {
+		return 0, errors.New("If-Match must contain a valid session revision")
+	}
+	return revision, nil
+}
+
+func writeSessionMutationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrRevisionConflict) {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	writeError(w, http.StatusBadRequest, err)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value interface{}) {

@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -64,6 +65,14 @@ func TestManualSegmentArchiveAndRestore(t *testing.T) {
 	}
 	if events[len(events)-3].Type != "segment.added_manually" || events[len(events)-2].Type != "segment.archived" || events[len(events)-1].Type != "segment.restored" {
 		t.Fatalf("unexpected event history: %#v", events)
+	}
+	payload, ok := events[len(events)-3].Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("manual segment payload = %#v", events[len(events)-3].Payload)
+	}
+	after, ok := payload["after"].(map[string]any)
+	if !ok || after["startFrame"] != float64(1_440_000) || after["endFrame"] != float64(2_160_000) {
+		t.Fatalf("manual segment audit did not record committed frames: %#v", payload)
 	}
 }
 
@@ -137,6 +146,7 @@ func TestManualSegmentValidatesRecordingBounds(t *testing.T) {
 	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", strings.NewReader(`{"label":"Invalid","startSeconds":10,"endSeconds":30}`))
 	request.Header.Set("Content-Type", "application/json")
+	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -261,10 +271,59 @@ func TestExportPreflightFailureIsReturnedSynchronously(t *testing.T) {
 	}
 }
 
+func TestSessionAPIRejectsMissingAndStaleRevisions(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Original", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
+	path := "/api/sessions/" + session.ID
+
+	missing := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"Missing revision"}`))
+	missing.Header.Set("Content-Type", "application/json")
+	missingResponse := httptest.NewRecorder()
+	handler.ServeHTTP(missingResponse, missing)
+	if missingResponse.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing revision status=%d body=%s", missingResponse.Code, missingResponse.Body.String())
+	}
+
+	first := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"First writer"}`))
+	first.Header.Set("Content-Type", "application/json")
+	first.Header.Set("If-Match", fmt.Sprintf(`"%d"`, session.Revision))
+	firstResponse := httptest.NewRecorder()
+	handler.ServeHTTP(firstResponse, first)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("first writer status=%d body=%s", firstResponse.Code, firstResponse.Body.String())
+	}
+
+	stale := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"Stale writer"}`))
+	stale.Header.Set("Content-Type", "application/json")
+	stale.Header.Set("If-Match", fmt.Sprintf(`"%d"`, session.Revision))
+	staleResponse := httptest.NewRecorder()
+	handler.ServeHTTP(staleResponse, stale)
+	if staleResponse.Code != http.StatusConflict {
+		t.Fatalf("stale writer status=%d body=%s", staleResponse.Code, staleResponse.Body.String())
+	}
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "First writer" {
+		t.Fatalf("stale writer changed title to %q", stored.Title)
+	}
+}
+
 func requestError(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, wantText string) {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != wantStatus || !strings.Contains(response.Body.String(), wantText) {
@@ -276,6 +335,7 @@ func requestSession(t *testing.T, handler http.Handler, method, path, body strin
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code < 200 || response.Code >= 300 {
@@ -286,4 +346,22 @@ func requestSession(t *testing.T, handler http.Handler, method, path, body strin
 		t.Fatal(err)
 	}
 	return session
+}
+
+func setCurrentRevisionHeader(t *testing.T, handler http.Handler, request *http.Request) {
+	t.Helper()
+	parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+	if len(parts) < 3 || parts[0] != "api" || parts[1] != "sessions" {
+		return
+	}
+	lookup := httptest.NewRecorder()
+	handler.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "/api/sessions/"+parts[2], nil))
+	if lookup.Code != http.StatusOK {
+		return
+	}
+	var session store.Session
+	if err := json.Unmarshal(lookup.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("If-Match", fmt.Sprintf(`"%d"`, session.Revision))
 }

@@ -200,8 +200,9 @@ atomically replaces the previous snapshot. On restart, a candidate with a
 matching journal event is published, while one without an event is discarded.
 A truncated final journal record is preserved separately before it is removed;
 malformed records or inconsistent revisions are reported rather than silently
-ignored. Adjusting a segment records its previous value and the requested
-change. Exports are first written under a private work directory and renamed
+ignored. Adjusting a segment records its previous value, the request, and the
+canonical value that was committed. Exports are first written under a private
+work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
 
@@ -320,6 +321,15 @@ would open in the dock panel itself. The server listens on loopback by
 default and sets a restrictive content-security policy. It has no cloud or OBS
 WebSocket dependency. Live status includes the audio-frame position and capture
 health statistics.
+
+Finished-session mutations use the snapshot's monotonically increasing
+`revision` as an HTTP precondition. The browser sends it in `If-Match`; a
+missing precondition receives 428, and a stale one receives 409 without running
+the mutation. On a conflict, the review page reloads the current snapshot.
+Responses are adopted only when their revision is at least as new as the one
+already displayed, so a slow request cannot roll the interface backwards. Live
+dock actions use the capture manager's serial frame clock and do not require an
+`If-Match` header.
 
 ## Repository map
 

@@ -20,6 +20,7 @@ let waveform = emptyWaveform();
 let dragState = null;
 let audioSource = null;
 let playbackToken = 0;
+let selectionToken = 0;
 // Enough of a segment to hear whether its edge is in the right place, without
 // waiting through the middle of a sermon to reach the end.
 const previewSeconds = 5;
@@ -62,7 +63,8 @@ async function deleteSession(session) {
   const when = new Date(session.startedAt).toLocaleDateString();
   if (!confirm(`Delete "${session.title}" from ${when}? Its recording and MP3s are removed from this computer and cannot be recovered.`)) return;
   try {
-    await api(`/api/sessions/${session.id}`, {method: "DELETE"});
+    const revision = current?.id === session.id ? current.revision : session.revision;
+    await api(`/api/sessions/${session.id}`, {method: "DELETE", headers: {"If-Match": `"${revision}"`}});
     if (current?.id === session.id) {
       stopSegmentPlayback();
       current = null;
@@ -75,9 +77,12 @@ async function deleteSession(session) {
 }
 
 async function selectSession(id) {
+  const token = ++selectionToken;
   stopSegmentPlayback();
   try {
-    current = await api(`/api/sessions/${id}`);
+    const selected = await api(`/api/sessions/${id}`);
+    if (token !== selectionToken) return;
+    current = selected;
     waveform = emptyWaveform();
     render();
     if (!isRecording(current)) void loadWaveform(id);
@@ -87,6 +92,29 @@ async function selectSession(id) {
 
 function isRecording(session) { return session?.status === "recording" || session?.status === "starting"; }
 function isExporting(session) { return session?.export?.status === "running"; }
+
+function adoptSession(candidate) {
+  if (!candidate || current?.id !== candidate.id) return current;
+  if ((candidate.revision ?? -1) >= (current.revision ?? -1)) current = candidate;
+  return current;
+}
+
+async function mutateSession(path, options) {
+  const id = current.id;
+  const revision = current.revision;
+  try {
+    return adoptSession(await api(path, {...options, headers: {...(options.headers || {}), "If-Match": `"${revision}"`}}));
+  } catch (error) {
+    if (error.status === 409 && current?.id === id) {
+      adoptSession(await api(`/api/sessions/${id}`));
+      render();
+      const conflict = new Error("This service changed in another request. The latest saved values have been reloaded.");
+      conflict.status = 409;
+      throw conflict;
+    }
+    throw error;
+  }
+}
 
 // The recording grows under a fixed path, so the finished file is a different
 // resource at the same URL. Keying the source on the published duration makes
@@ -251,7 +279,7 @@ async function saveSegmentRow(segment, row) {
     Math.abs(startSeconds-segment.startSeconds) < .05 && Math.abs(endSeconds-segment.endSeconds) < .05;
   if (unchanged) return;
   try {
-    current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include, label, startSeconds, endSeconds})});
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include, label, startSeconds, endSeconds})});
     elements.error.textContent = "";
   } catch (error) { showError(error); }
   // A rejected change is redrawn from the stored segment, so what is on screen
@@ -271,14 +299,14 @@ function removedSegmentRow(segment) {
 async function removeSegment(segment) {
   if (playing?.segmentID === segment.id) stopSegmentPlayback();
   try {
-    current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "DELETE"});
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "DELETE"});
     elements.error.textContent = ""; render();
   } catch (error) { showError(error); }
 }
 
 async function restoreSegment(segment) {
   try {
-    current = await api(`/api/sessions/${current.id}/segments/${segment.id}/restore`, {method: "POST", body: "{}"});
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}/restore`, {method: "POST", body: "{}"});
     elements.error.textContent = ""; render();
   } catch (error) { showError(error); }
 }
@@ -471,11 +499,11 @@ async function finishDrag() {
   drawSegments();
   if (!segment) return;
   try {
-    current = await api(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({startSeconds: segment.startSeconds, endSeconds: segment.endSeconds})});
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({startSeconds: segment.startSeconds, endSeconds: segment.endSeconds})});
     elements.error.textContent = ""; render();
   } catch (error) {
     showError(error);
-    current = await api(`/api/sessions/${current.id}`);
+    adoptSession(await api(`/api/sessions/${current.id}`));
     render();
   }
 }
@@ -558,7 +586,7 @@ window.addEventListener("resize", renderWaveform);
 elements["add-marker"].addEventListener("submit", async event => {
   event.preventDefault();
   try {
-    current = await api(`/api/sessions/${current.id}/markers`, {method: "POST", body: JSON.stringify({label: elements["marker-label"].value, atSeconds: parseTime(elements["marker-time"].value)})});
+    await mutateSession(`/api/sessions/${current.id}/markers`, {method: "POST", body: JSON.stringify({label: elements["marker-label"].value, atSeconds: parseTime(elements["marker-time"].value)})});
     elements["marker-label"].value = ""; render();
   } catch (error) { showError(error); }
 });
@@ -601,7 +629,7 @@ async function saveSessionDetails() {
   if (savingDetails || (title === current.title && church === current.church)) return;
   savingDetails = true;
   try {
-    current = await api(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({title, church})});
+    await mutateSession(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({title, church})});
     elements.error.textContent = "";
     await loadSessions();
   } catch (error) {
@@ -626,7 +654,7 @@ elements["gap-seconds"].addEventListener("change", async () => {
   const seconds = Number(typed);
   if (typed !== "" && Number.isFinite(seconds)) {
     try {
-      current = await api(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({gapSeconds: seconds})});
+      await mutateSession(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({gapSeconds: seconds})});
       elements.error.textContent = "";
     } catch (error) { showError(error); }
   }
@@ -653,7 +681,7 @@ elements["cancel-add-segment"].addEventListener("click", () => elements["add-seg
 elements["add-segment"].addEventListener("submit", async event => {
   event.preventDefault();
   try {
-    current = await api(`/api/sessions/${current.id}/segments/manual`, {method: "POST", body: JSON.stringify({
+    await mutateSession(`/api/sessions/${current.id}/segments/manual`, {method: "POST", body: JSON.stringify({
       label: elements["new-segment-label"].value,
       startSeconds: parseTime(elements["new-segment-start"].value),
       endSeconds: parseTime(elements["new-segment-end"].value)
@@ -680,7 +708,7 @@ setInterval(async () => {
   if (!current || (current.export?.status !== "running" && !isRecording(current))) return;
   const wasRecording = isRecording(current);
   try {
-    current = await api(`/api/sessions/${current.id}`);
+    adoptSession(await api(`/api/sessions/${current.id}`));
     render();
     if (wasRecording && !isRecording(current)) { void loadWaveform(current.id); void loadSessions(); }
   } catch (_) {}
