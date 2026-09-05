@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,5 +138,159 @@ func TestStoreRejectsFutureSessionSchema(t *testing.T) {
 	}
 	if _, err := sessions.Get(session.ID); err == nil {
 		t.Fatal("future schema was accepted")
+	}
+	listed, err := sessions.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 0 {
+		t.Fatal("unreadable session was listed as healthy")
+	}
+	problems := sessions.Problems()
+	if len(problems) != 1 || !strings.Contains(problems[0], session.ID) {
+		t.Fatalf("session problems = %v", problems)
+	}
+}
+
+func TestStoreFinishesCommittedStagedSnapshot(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Recover", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	candidate := clone(session)
+	candidate.Revision++
+	candidate.Status = "stopped"
+	writeSnapshotForTest(t, filepath.Join(dir, stagedSnapshotName), candidate)
+	appendEventForTest(t, filepath.Join(dir, journalName), Event{Sequence: candidate.Revision, At: time.Now(), Type: "test.committed", SessionID: session.ID})
+
+	recovered, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Revision != candidate.Revision || recovered.Status != "stopped" {
+		t.Fatalf("recovered snapshot = %#v", recovered)
+	}
+	if _, err := os.Stat(filepath.Join(dir, stagedSnapshotName)); !os.IsNotExist(err) {
+		t.Fatalf("staged snapshot remains: %v", err)
+	}
+}
+
+func TestStoreDiscardsStagedSnapshotWithoutAnEvent(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Recover", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	candidate := clone(session)
+	candidate.Revision++
+	candidate.Status = "stopped"
+	writeSnapshotForTest(t, filepath.Join(dir, stagedSnapshotName), candidate)
+
+	recovered, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Revision != session.Revision || recovered.Status != session.Status {
+		t.Fatalf("uncommitted snapshot was published: %#v", recovered)
+	}
+	if _, err := os.Stat(filepath.Join(dir, stagedSnapshotName)); !os.IsNotExist(err) {
+		t.Fatalf("uncommitted snapshot remains: %v", err)
+	}
+}
+
+func TestStorePreservesAndRemovesTruncatedFinalEvent(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Recover", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	journal := filepath.Join(dir, journalName)
+	file, err := os.OpenFile(journal, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(`{"sequence":2`); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := sessions.Events(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want the one complete event", len(events))
+	}
+	matches, err := filepath.Glob(journal + ".truncated-*")
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("preserved truncated records = %v, %v", matches, err)
+	}
+	preserved, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preserved) != `{"sequence":2` {
+		t.Fatalf("preserved tail = %q", preserved)
+	}
+}
+
+func TestStoreRejectsJournalAheadWithoutCandidate(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Recover", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	appendEventForTest(t, filepath.Join(dir, journalName), Event{Sequence: session.Revision + 1, At: time.Now(), Type: "test.orphaned", SessionID: session.ID})
+	if _, err := sessions.Get(session.ID); err == nil {
+		t.Fatal("journal ahead of its snapshot was accepted")
+	}
+}
+
+func writeSnapshotForTest(t *testing.T, path string, session *Session) {
+	t.Helper()
+	data, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendEventForTest(t *testing.T, path string, event Event) {
+	t.Helper()
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

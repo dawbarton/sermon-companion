@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
@@ -92,11 +93,7 @@ func (g *Generator) Generate(ctx context.Context, id string) (Envelope, error) {
 	if err != nil {
 		return Envelope{}, err
 	}
-	tmp := cachePath + ".tmp"
-	if err := os.WriteFile(tmp, append(encoded, '\n'), 0o644); err != nil {
-		return Envelope{}, err
-	}
-	if err := os.Rename(tmp, cachePath); err != nil {
+	if err := atomicfile.Write(cachePath, append(encoded, '\n'), 0o644); err != nil {
 		return Envelope{}, err
 	}
 	return envelope, nil

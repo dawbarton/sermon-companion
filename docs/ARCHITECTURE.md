@@ -184,8 +184,13 @@ sessions/SESSION-ID/
     previous/                  superseded exports retained here
 ```
 
-An event is appended and flushed before the new snapshot replaces the previous
-snapshot. Adjusting a segment records its previous value and the requested
+The complete candidate snapshot is written and flushed first, but remains under
+a private name. Its event is then appended and flushed before the candidate
+atomically replaces the previous snapshot. On restart, a candidate with a
+matching journal event is published, while one without an event is discarded.
+A truncated final journal record is preserved separately before it is removed;
+malformed records or inconsistent revisions are reported rather than silently
+ignored. Adjusting a segment records its previous value and the requested
 change. Exports are first written under a private work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.

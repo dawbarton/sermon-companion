@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 )
 
 // Settings holds the configuration the running application is using and, when
@@ -105,13 +107,8 @@ func saveConfig(path string, c Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(encoded, '\n'), 0o644); err != nil {
+	if err := atomicfile.Write(path, append(encoded, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replace config: %w", err)
 	}
 	return nil
 }

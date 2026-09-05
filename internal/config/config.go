@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 )
 
 type Config struct {
@@ -163,7 +165,7 @@ func LoadOrCreateConfig(path string) (Config, error) {
 			return Config{}, err
 		}
 		encoded, _ := json.MarshalIndent(defaults, "", "  ")
-		if err := os.WriteFile(path, append(encoded, '\n'), 0o644); err != nil {
+		if err := atomicfile.Write(path, append(encoded, '\n'), 0o644); err != nil {
 			return Config{}, fmt.Errorf("create config: %w", err)
 		}
 		return defaults, nil

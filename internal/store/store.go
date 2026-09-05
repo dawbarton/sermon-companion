@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -13,11 +12,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 )
 
 type Store struct {
-	root string
-	mu   sync.Mutex
+	root     string
+	mu       sync.Mutex
+	problems map[string]string
 }
 
 func New(root string) (*Store, error) {
@@ -32,7 +34,7 @@ func New(root string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0o755); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
-	return &Store{root: root}, nil
+	return &Store{root: root, problems: make(map[string]string)}, nil
 }
 
 func (s *Store) Root() string { return s.root }
@@ -128,12 +130,33 @@ func (s *Store) List() ([]Session, error) {
 			continue
 		}
 		session, err := s.getLocked(entry.Name())
-		if err == nil {
-			out = append(out, *session)
+		if err != nil {
+			s.problems[entry.Name()] = err.Error()
+			continue
 		}
+		delete(s.problems, entry.Name())
+		out = append(out, *session)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
 	return out, nil
+}
+
+// Problems reports session directories that could not be recovered or read.
+// Healthy sessions remain available, but damaged data must not disappear from
+// the interface without leaving an actionable message in the application log.
+func (s *Store) Problems() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.problems))
+	for id := range s.problems {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	problems := make([]string, 0, len(ids))
+	for _, id := range ids {
+		problems = append(problems, fmt.Sprintf("session %s: %s", id, s.problems[id]))
+	}
+	return problems
 }
 
 func (s *Store) Update(id, eventType string, payload interface{}, mutate func(*Session) error) (*Session, error) {
@@ -172,76 +195,43 @@ func (s *Store) saveLocked(session *Session, eventType string, payload interface
 	if err != nil {
 		return err
 	}
-	eventsPath := filepath.Join(dir, "events.jsonl")
-	events, err := os.OpenFile(eventsPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err = events.Write(append(eventBytes, '\n')); err == nil {
-		err = events.Sync()
-	}
-	closeErr := events.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-
 	snapshot, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(dir, "session.json.tmp")
-	if err := os.WriteFile(tmp, append(snapshot, '\n'), 0o644); err != nil {
+	staged := filepath.Join(dir, stagedSnapshotName)
+	if err := atomicfile.WriteStaged(staged, append(snapshot, '\n'), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, "session.json"))
+	if err := appendJournalEvent(filepath.Join(dir, journalName), append(eventBytes, '\n')); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	return atomicfile.Replace(staged, filepath.Join(dir, snapshotName))
 }
 
 func (s *Store) getLocked(id string) (*Session, error) {
 	if !validID(id) {
 		return nil, errors.New("invalid session ID")
 	}
-	data, err := os.ReadFile(filepath.Join(s.root, "sessions", id, "session.json"))
-	if err != nil {
+	dir, _ := s.SessionDir(id)
+	if err := recoverSessionFiles(dir, id); err != nil {
 		return nil, err
 	}
-	var session Session
-	if err := json.Unmarshal(data, &session); err != nil {
-		return nil, err
-	}
-	if session.ID != id {
-		return nil, fmt.Errorf("session snapshot ID %q does not match directory %q", session.ID, id)
-	}
-	if !validID(session.ID) {
-		return nil, errors.New("session snapshot contains an invalid ID")
-	}
-	if session.SchemaVersion < 1 || session.SchemaVersion > SchemaVersion {
-		return nil, fmt.Errorf("unsupported session schema version %d (this application supports up to %d)", session.SchemaVersion, SchemaVersion)
-	}
-	return &session, nil
+	return readSnapshot(filepath.Join(dir, snapshotName), id)
 }
 
 func (s *Store) Events(id string) ([]Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	dir, err := s.SessionDir(id)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(dir, "events.jsonl"))
-	if err != nil {
+	if err := recoverSessionFiles(dir, id); err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	var events []Event
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		var event Event
-		if json.Unmarshal(scanner.Bytes(), &event) == nil {
-			events = append(events, event)
-		}
-	}
-	return events, scanner.Err()
+	return readJournal(filepath.Join(dir, journalName), id, true)
 }
 
 func clone(session *Session) *Session {

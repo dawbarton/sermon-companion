@@ -112,6 +112,9 @@ func main() {
 		days, _ := c.KeepRecordingsFor()
 		log.Printf("deleted %d service(s) older than %d days: %s", len(deleted), days, strings.Join(deleted, ", "))
 	}
+	for _, problem := range sessions.Problems() {
+		log.Printf("session data needs attention: %s", problem)
+	}
 	reportCaptureDevice(settings.Get())
 
 	mastering := master.New(c, sessions)
