@@ -2,9 +2,11 @@ package master
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
@@ -22,6 +25,18 @@ import (
 type Master struct {
 	config config.Config
 	store  *store.Store
+}
+
+// Job is an immutable export plan. Prepare creates it and durably marks the
+// session as running before the HTTP API reports that work has started.
+type Job struct {
+	id            string
+	session       *store.Session
+	segments      []store.Segment
+	started       time.Time
+	startRevision int64
+	dir           string
+	input         string
 }
 
 type measurement struct {
@@ -37,44 +52,81 @@ func New(c config.Config, sessions *store.Store) *Master {
 }
 
 func (m *Master) Export(id string) error {
-	session, err := m.store.Get(id)
+	job, err := m.Prepare(id)
 	if err != nil {
 		return err
 	}
+	return m.Run(context.Background(), job)
+}
+
+// Prepare validates every cheap precondition and commits export.started. It is
+// intentionally synchronous so an accepted API response always corresponds to
+// a visible, durable running export.
+func (m *Master) Prepare(id string) (*Job, error) {
+	session, err := m.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
 	if session.Status == "recording" || session.Status == "starting" {
-		return errors.New("stop the recording before exporting")
+		return nil, errors.New("stop the recording before exporting")
+	}
+	if session.Export != nil && session.Export.Status == "running" {
+		return nil, errors.New("an export is already running")
 	}
 	if strings.TrimSpace(session.Church) == "" {
 		session.Church = m.config.Church
 	}
 	if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
-		return err
+		return nil, err
 	}
 	segments := exportSegments(session.Segments)
 	if len(segments) == 0 {
-		return errors.New("there are no complete, included segments to export")
+		return nil, errors.New("there are no complete, included segments to export")
 	}
 	dir, _ := m.store.SessionDir(id)
 	input, err := m.store.SessionFile(id, session.AudioFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := os.Stat(input); err != nil {
-		return fmt.Errorf("recording not found: %w", err)
+		return nil, fmt.Errorf("recording not found: %w", err)
 	}
 
 	started := time.Now().UTC()
 	begun, err := m.store.Update(id, "export.started", map[string]any{"segments": segmentIDs(segments)}, func(s *store.Session) error {
+		if s.Status == "recording" || s.Status == "starting" {
+			return errors.New("stop the recording before exporting")
+		}
+		if s.Export != nil && s.Export.Status == "running" {
+			return errors.New("an export is already running")
+		}
+		if err := store.ValidateNoSegmentOverlaps(s.Segments); err != nil {
+			return err
+		}
+		if len(exportSegments(s.Segments)) == 0 {
+			return errors.New("there are no complete, included segments to export")
+		}
 		s.Export = &store.ExportInfo{Status: "running", StartedAt: started}
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	startRevision := begun.Revision
+	if strings.TrimSpace(begun.Church) == "" {
+		begun.Church = m.config.Church
+	}
+	return &Job{id: id, session: begun, segments: exportSegments(begun.Segments), started: started, startRevision: begun.Revision, dir: dir, input: input}, nil
+}
 
-	exportDir := filepath.Join(dir, "exports")
-	workDir := filepath.Join(exportDir, ".work-"+started.Format("20060102-150405"))
+// Run performs a prepared export. Cancelling ctx stops the active FFmpeg child
+// and records a failed export before returning.
+func (m *Master) Run(ctx context.Context, job *Job) error {
+	if job == nil {
+		return errors.New("export job is required")
+	}
+	id, session, segments, started := job.id, job.session, job.segments, job.started
+	exportDir := filepath.Join(job.dir, "exports")
+	workDir := filepath.Join(exportDir, ".work-"+started.Format("20060102-150405.000000000"))
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return m.fail(id, err)
 	}
@@ -99,9 +151,9 @@ func (m *Master) Export(id string) error {
 	// speech, so the gain is the same across all of it.
 	measured := make(map[string]measurement, len(segments))
 	for _, group := range groupByLabel(segments) {
-		value, err := m.measureGroup(input, group, logFile)
+		value, err := m.measureGroup(ctx, job.input, group, logFile)
 		if err != nil {
-			return m.fail(id, fmt.Errorf("measure %q: %w", group.label, err))
+			return m.fail(id, exportCommandError(ctx, fmt.Errorf("measure %q: %w", group.label, err)))
 		}
 		fmt.Fprintf(logFile, "%q measured across %d segment(s): I=%s LUFS, TP=%s dBTP\n", group.label, len(group.segments), value.InputI, value.InputTP)
 		measured[group.key] = value
@@ -113,9 +165,9 @@ func (m *Master) Export(id string) error {
 		if i == len(segments)-1 {
 			pad = 0
 		}
-		output, err := m.renderSegment(input, workDir, i, segment, measured[labelKey(segment)], recordingRate, pad, logFile)
+		output, err := m.renderSegment(ctx, job.input, workDir, i, segment, measured[labelKey(segment)], recordingRate, pad, logFile)
 		if err != nil {
-			return m.fail(id, fmt.Errorf("normalise %q: %w", segment.Label, err))
+			return m.fail(id, exportCommandError(ctx, fmt.Errorf("normalise %q: %w", segment.Label, err)))
 		}
 		files = append(files, output)
 	}
@@ -128,24 +180,26 @@ func (m *Master) Export(id string) error {
 		return m.fail(id, err)
 	}
 	outputName := outputName(session)
-	tempOutput := filepath.Join(workDir, "master.part.mp3")
+	// The final staging file lives beside the published MP3 so replacement is
+	// atomic on every supported platform.
+	tempOutput := filepath.Join(exportDir, ".master-"+started.Format("20060102-150405.000000000")+".part.mp3")
 	args := []string{"-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", "concat.txt", "-vn", "-c:a", "libmp3lame", "-q:a", strconv.Itoa(m.config.Master.MP3QualityLevel()), "-ar", strconv.Itoa(recordingRate), "-metadata", "title=" + session.Title, "-metadata", "comment=Created by Sermon Companion", tempOutput}
-	if err := runLogged(m.config.FFmpeg, args, workDir, logFile); err != nil {
-		return m.fail(id, fmt.Errorf("create MP3: %w", err))
+	if err := runLogged(ctx, m.config.FFmpeg, args, workDir, logFile); err != nil {
+		return m.fail(id, exportCommandError(ctx, fmt.Errorf("create MP3: %w", err)))
 	}
 	finalPath := filepath.Join(exportDir, outputName)
+	if err := m.readyToPublish(job, outputName); err != nil {
+		return m.fail(id, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return m.fail(id, exportCommandError(ctx, err))
+	}
 	if err := publishOutput(tempOutput, finalPath, started); err != nil {
 		return m.fail(id, err)
 	}
 	ended := time.Now().UTC()
 	_, err = m.store.Update(id, "export.completed", map[string]any{"output": filepath.Join("exports", outputName)}, func(s *store.Session) error {
 		info := &store.ExportInfo{Status: "completed", StartedAt: started, EndedAt: &ended, Output: filepath.ToSlash(filepath.Join("exports", outputName))}
-		// Segment and metadata edits are accepted while an export runs, so an
-		// MP3 built from the earlier snapshot must not be published as current.
-		if s.Revision != startRevision {
-			info.Status = "stale"
-			info.Error = "Service details or segments changed while this MP3 was being created."
-		}
 		s.Export = info
 		return nil
 	})
@@ -155,10 +209,20 @@ func (m *Master) Export(id string) error {
 	return err
 }
 
+func (m *Master) readyToPublish(job *Job, outputName string) error {
+	_, err := m.store.Update(job.id, "export.ready_to_publish", map[string]any{"output": filepath.Join("exports", outputName)}, func(s *store.Session) error {
+		if s.Revision != job.startRevision || s.Export == nil || s.Export.Status != "running" {
+			return errors.New("service details changed while this MP3 was being created")
+		}
+		return nil
+	})
+	return err
+}
+
 // measureGroup runs the analysis pass over every segment carrying one label at
 // once. The segments are joined inside the filter graph, so FFmpeg measures the
 // speech as the operator hears it rather than as the pieces it was cut into.
-func (m *Master) measureGroup(input string, group segmentGroup, logFile *os.File) (measurement, error) {
+func (m *Master) measureGroup(ctx context.Context, input string, group segmentGroup, logFile *os.File) (measurement, error) {
 	graph := new(strings.Builder)
 	fmt.Fprintf(graph, "[0:a]asplit=%d", len(group.segments))
 	for i := range group.segments {
@@ -177,7 +241,7 @@ func (m *Master) measureGroup(input string, group segmentGroup, logFile *os.File
 	}
 	fmt.Fprintf(graph, "concat=n=%d:v=0:a=1,%s%s:print_format=json[measured]", len(group.segments), m.downmixFilter(), targetFilter(m.config.Master))
 	args := []string{"-hide_banner", "-nostats", "-i", input, "-filter_complex", graph.String(), "-map", "[measured]", "-vn", "-f", "null", "-"}
-	analysis, err := runCapture(m.config.FFmpeg, args, "", logFile)
+	analysis, err := runCapture(ctx, m.config.FFmpeg, args, "", logFile)
 	if err != nil {
 		return measurement{}, err
 	}
@@ -186,7 +250,7 @@ func (m *Master) measureGroup(input string, group segmentGroup, logFile *os.File
 
 // renderSegment applies the gain its group was measured for, so two halves of
 // one talk come out at the same level as each other.
-func (m *Master) renderSegment(input, workDir string, index int, segment store.Segment, measured measurement, recordingRate int, padSeconds float64, logFile *os.File) (string, error) {
+func (m *Master) renderSegment(ctx context.Context, input, workDir string, index int, segment store.Segment, measured measurement, recordingRate int, padSeconds float64, logFile *os.File) (string, error) {
 	trimmed, err := trimFilter(segment)
 	if err != nil {
 		return "", err
@@ -210,7 +274,7 @@ func (m *Master) renderSegment(input, workDir string, index int, segment store.S
 	filter += ",aformat=sample_fmts=s16,asetnsamples=n=4096:p=0"
 	output := filepath.Join(workDir, fmt.Sprintf("segment-%03d.flac", index+1))
 	renderArgs := append(append([]string{}, common...), "-vn", "-af", filter, "-ar", strconv.Itoa(recordingRate), "-c:a", "flac", "-compression_level", "5", output)
-	if err := runLogged(m.config.FFmpeg, renderArgs, "", logFile); err != nil {
+	if err := runLogged(ctx, m.config.FFmpeg, renderArgs, "", logFile); err != nil {
 		return "", err
 	}
 	return output, nil
@@ -271,10 +335,20 @@ func (m *Master) fail(id string, cause error) error {
 	if session != nil && session.Export != nil {
 		started = session.Export.StartedAt
 	}
-	_, _ = m.store.Update(id, "export.failed", map[string]any{"error": cause.Error()}, func(s *store.Session) error {
+	_, updateErr := m.store.Update(id, "export.failed", map[string]any{"error": cause.Error()}, func(s *store.Session) error {
 		s.Export = &store.ExportInfo{Status: "failed", StartedAt: started, EndedAt: &ended, Error: cause.Error()}
 		return nil
 	})
+	if updateErr != nil {
+		return errors.Join(cause, fmt.Errorf("save export failure: %w", updateErr))
+	}
+	return cause
+}
+
+func exportCommandError(ctx context.Context, cause error) error {
+	if ctx.Err() != nil {
+		return errors.New("export cancelled because Sermon Companion is closing")
+	}
 	return cause
 }
 
@@ -316,8 +390,8 @@ func parseMeasurement(output []byte) (measurement, error) {
 	return measured, nil
 }
 
-func runCapture(program string, args []string, dir string, logFile *os.File) ([]byte, error) {
-	cmd := proc.Command(program, args...)
+func runCapture(ctx context.Context, program string, args []string, dir string, logFile *os.File) ([]byte, error) {
+	cmd := proc.CommandContext(ctx, program, args...)
 	cmd.Dir = dir
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
@@ -329,8 +403,8 @@ func runCapture(program string, args []string, dir string, logFile *os.File) ([]
 	return output.Bytes(), nil
 }
 
-func runLogged(program string, args []string, dir string, logFile *os.File) error {
-	cmd := proc.Command(program, args...)
+func runLogged(ctx context.Context, program string, args []string, dir string, logFile *os.File) error {
+	cmd := proc.CommandContext(ctx, program, args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, logFile, logFile
 	return cmd.Run()
 }
@@ -383,7 +457,6 @@ func filenamePart(value string) string {
 }
 
 func publishOutput(tempPath, finalPath string, started time.Time) error {
-	backupPath := ""
 	if _, err := os.Stat(finalPath); err == nil {
 		previousDir := filepath.Join(filepath.Dir(finalPath), "previous")
 		if err := os.MkdirAll(previousDir, 0o755); err != nil {
@@ -391,17 +464,43 @@ func publishOutput(tempPath, finalPath string, started time.Time) error {
 		}
 		base := strings.TrimSuffix(filepath.Base(finalPath), filepath.Ext(finalPath))
 		backupName := base + "-" + started.Format("20060102-150405.000000000") + filepath.Ext(finalPath)
-		backupPath = filepath.Join(previousDir, backupName)
-		if err := os.Rename(finalPath, backupPath); err != nil {
+		backupPath := filepath.Join(previousDir, backupName)
+		if err := copyFile(finalPath, backupPath); err != nil {
 			return err
 		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Rename(tempPath, finalPath); err != nil {
-		if backupPath != "" {
-			_ = os.Rename(backupPath, finalPath)
-		}
+	return atomicfile.Replace(tempPath, finalPath)
+}
+
+func copyFile(source, destination string) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	temporary := destination + ".part"
+	output, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(output, input); err != nil {
+		_ = output.Close()
+		_ = os.Remove(temporary)
+		return err
+	}
+	if err = output.Sync(); err != nil {
+		_ = output.Close()
+		_ = os.Remove(temporary)
+		return err
+	}
+	if err = output.Close(); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	if err := os.Rename(temporary, destination); err != nil {
+		_ = os.Remove(temporary)
 		return err
 	}
 	return nil

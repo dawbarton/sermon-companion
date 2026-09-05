@@ -220,11 +220,19 @@ logged when it happens, because the session's own journal goes with it. Setting
 
 The current MP3 name is deterministic from the local service date and a
 filesystem-safe, space-free form of the session's church. Re-exporting first
-moves the preceding file into `exports/previous`, then atomically publishes the
-new current file. The manager asks the operating system to reveal `exports`
-when the operator clicks "Open MP3 folder".
+copies the preceding file into `exports/previous`, then atomically replaces the
+current file, so a crash cannot leave the current pathname empty between two
+renames. The manager asks the operating system to reveal `exports` when the
+operator clicks "Open MP3 folder".
 
 ## Mastering
+
+Export preflight is synchronous: the source, segments, and timeline are checked
+and `export.started` is committed before the API accepts the job. Segment,
+marker, and service edits are refused until it finishes. Immediately before
+publication, the stored revision is checked again; a changed service cannot
+replace the current MP3. On shutdown the server cancels and waits for FFmpeg,
+then records the export failure for the next start-up.
 
 Included, complete segments are sorted chronologically. FFmpeg trims each one by
 its exact start and end sample and, by default, folds it to a single channel

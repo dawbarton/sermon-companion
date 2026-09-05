@@ -1,6 +1,7 @@
 package master
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,6 +64,102 @@ func TestPublishOutputRetainsPreviousExport(t *testing.T) {
 	if data, err := os.ReadFile(previous); err != nil || string(data) != "old" {
 		t.Fatalf("previous export = %q, %v", data, err)
 	}
+}
+
+func TestPrepareMakesRunningExportDurable(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	job, err := mastering.Prepare(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.startRevision != stored.Revision || stored.Export == nil || stored.Export.Status != "running" {
+		t.Fatalf("prepared export = %#v, revision %d", stored.Export, stored.Revision)
+	}
+}
+
+func TestPrepareFailureDoesNotLeaveRunningExport(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	dir, _ := sessions.SessionDir(session.ID)
+	if err := os.Remove(filepath.Join(dir, "audio.flac")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mastering.Prepare(session.ID); err == nil {
+		t.Fatal("missing recording was accepted")
+	}
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Export != nil {
+		t.Fatalf("failed preparation left export state %#v", stored.Export)
+	}
+}
+
+func TestChangedSessionIsRejectedBeforePublication(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	job, err := mastering.Prepare(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Update(session.ID, "test.concurrent_change", nil, func(s *store.Session) error {
+		s.Title = "Changed"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mastering.readyToPublish(job, "test.mp3"); err == nil {
+		t.Fatal("changed session was accepted for publication")
+	}
+}
+
+func TestCancelledExportRecordsFailure(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	job, err := mastering.Prepare(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := mastering.Run(ctx, job); err == nil {
+		t.Fatal("cancelled export succeeded")
+	}
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Export == nil || stored.Export.Status != "failed" || stored.Export.Error != "export cancelled because Sermon Companion is closing" {
+		t.Fatalf("cancelled export state = %#v", stored.Export)
+	}
+}
+
+func preparationFixture(t *testing.T) (*Master, *store.Store, *store.Session) {
+	t.Helper()
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Preparation", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := sessions.SessionDir(session.ID)
+	if err := os.WriteFile(filepath.Join(dir, "audio.flac"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	end, endFrame := 1.0, uint64(48_000)
+	if _, err := sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status, s.AudioFile, s.Duration = "stopped", "audio.flac", 1
+		s.Capture = store.CaptureInfo{SampleRate: 48_000, TotalFrames: endFrame}
+		s.Segments = []store.Segment{{ID: "one", Label: "Sermon", End: &end, EndFrame: &endFrame, Include: true}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return New(config.DefaultConfig(), sessions), sessions, session
 }
 
 func TestExportSegmentsFiltersAndSorts(t *testing.T) {

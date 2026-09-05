@@ -205,6 +205,62 @@ func TestStartingSegmentsAtSameFrameCannotCreateTwoOpenSegments(t *testing.T) {
 	}
 }
 
+func TestSegmentChangesAreBlockedWhileExportRuns(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Exporting", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, endFrame := 10.0, uint64(480_000)
+	if _, err := sessions.Update(session.ID, "test.exporting", nil, func(s *store.Session) error {
+		s.Status = "stopped"
+		s.Segments = []store.Segment{{ID: "one", Label: "Sermon", End: &end, EndFrame: &endFrame, Include: true}}
+		s.Export = &store.ExportInfo{Status: "running", StartedAt: time.Now()}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
+	requestError(t, handler, http.MethodPatch, "/api/sessions/"+session.ID+"/segments/one", `{"label":"Changed"}`, http.StatusBadRequest, "wait for the MP3")
+	requestError(t, handler, http.MethodDelete, "/api/sessions/"+session.ID+"/segments/one", "", http.StatusBadRequest, "wait for the MP3")
+	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Other","startSeconds":11,"endSeconds":12}`, http.StatusBadRequest, "wait for the MP3")
+}
+
+func TestExportPreflightFailureIsReturnedSynchronously(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("No audio", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, endFrame := 1.0, uint64(48_000)
+	if _, err := sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status = "stopped"
+		s.Segments = []store.Segment{{ID: "one", Label: "Sermon", End: &end, EndFrame: &endFrame, Include: true}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
+	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/export", `{}`, http.StatusBadRequest, "recording not found")
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Export != nil {
+		t.Fatalf("failed preflight left export state %#v", stored.Export)
+	}
+}
+
 func requestError(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, wantText string) {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))

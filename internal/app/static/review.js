@@ -86,6 +86,7 @@ async function selectSession(id) {
 }
 
 function isRecording(session) { return session?.status === "recording" || session?.status === "starting"; }
+function isExporting(session) { return session?.export?.status === "running"; }
 
 // The recording grows under a fixed path, so the finished file is a different
 // resource at the same URL. Keying the source on the published duration makes
@@ -146,13 +147,16 @@ function render() {
   const exp = current.export;
   elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
   if (document.activeElement !== elements["gap-seconds"]) elements["gap-seconds"].value = gapSeconds(current);
-  const exporting = exp?.status === "running";
+  const exporting = isExporting(current);
   elements["gap-seconds"].disabled = exporting;
   elements.export.disabled = isRecording(current) || exporting;
   // The API refuses a change while an MP3 is being made, so the boxes say so
   // rather than accepting an edit that will bounce.
   elements["session-title"].disabled = exporting;
   elements.church.disabled = exporting;
+  elements["show-add-segment"].disabled = exporting;
+  if (exporting) elements["add-segment"].classList.add("hidden");
+  for (const control of elements["add-marker"].querySelectorAll("input, button")) control.disabled = exporting;
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
 }
@@ -199,8 +203,10 @@ function segmentRow(segment) {
   const label = document.createElement("input"); label.value = segment.label; label.dataset.field = "label";
   const start = document.createElement("input"); start.value = formatTime(segment.startSeconds, true); start.className = "short"; start.dataset.field = "start";
   const end = document.createElement("input"); end.value = segment.endSeconds == null ? "" : formatTime(segment.endSeconds, true); end.className = "short"; end.dataset.field = "end";
+  for (const control of [include, label, start, end]) control.disabled = isExporting(current);
   for (const control of [include, label, start, end]) control.addEventListener("change", () => saveSegmentRow(segment, row));
   const remove = document.createElement("button"); remove.textContent = "Remove"; remove.className = "remove";
+  remove.disabled = isExporting(current);
   remove.addEventListener("click", () => removeSegment(segment));
   const actions = document.createElement("div"); actions.className = "row-actions"; actions.append(remove);
   for (const control of [listen, include, label, start, end, actions]) { const cell = document.createElement("td"); cell.append(control); row.append(cell); }
@@ -258,6 +264,7 @@ function removedSegmentRow(segment) {
   const label = document.createElement("strong"); label.textContent = segment.label;
   const times = document.createElement("span"); times.className = "muted time"; times.textContent = `${formatTime(segment.startSeconds, true)} – ${formatTime(segment.endSeconds, true)}`;
   const restore = document.createElement("button"); restore.textContent = "Restore"; restore.addEventListener("click", () => restoreSegment(segment));
+  restore.disabled = isExporting(current);
   row.append(label, times, restore); return row;
 }
 
@@ -416,12 +423,13 @@ function segmentHandle(segment, edge) {
   handle.type = "button";
   handle.title = `Adjust ${edge} of ${segment.label}`;
   handle.setAttribute("aria-label", handle.title);
+  handle.disabled = isExporting(current);
   handle.addEventListener("pointerdown", event => beginDrag(event, segment, edge));
   return handle;
 }
 
 function beginDrag(event, segment, mode) {
-  if (segment.endSeconds == null) return;
+  if (segment.endSeconds == null || isExporting(current)) return;
   event.preventDefault(); event.stopPropagation();
   const neighbours = segmentNeighbours(segment);
   dragState = {segmentID: segment.id, mode, pointerX: event.clientX, originalStart: segment.startSeconds, originalEnd: segment.endSeconds, minimumStart: neighbours.previous?.endSeconds ?? 0, maximumEnd: neighbours.next?.startSeconds ?? waveform.duration};

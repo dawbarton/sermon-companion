@@ -95,6 +95,10 @@ Choose the service in the list on the left. Then:
   and is remembered for that service alone.
 - Press **Create MP3**, then **Open MP3 folder** or **Download MP3**.
 
+The service is read-only while its MP3 is being created. Closing Sermon
+Companion cancels any active export cleanly and records it as failed, ready to
+be started again after reopening the application.
+
 The MP3 is a single channel: a service is one mix of one speaker, so both
 recorded channels carry the same audio, and `-19` is the loudness recommended
 for a mono spoken-word file. `mastering.mono` below keeps the recorded stereo

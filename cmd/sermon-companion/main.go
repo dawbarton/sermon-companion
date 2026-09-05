@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -168,6 +169,7 @@ func main() {
 		log.Print("running without a system tray icon; interrupt to stop")
 	}
 	<-finished
+	_ = httpServer.Close()
 
 	if _, _, _, active := captureManager.Active(); active {
 		log.Print("stopping active recording safely")
@@ -175,7 +177,11 @@ func main() {
 			log.Printf("stop recording: %v", err)
 		}
 	}
-	_ = httpServer.Close()
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Second)
+	if err := server.Shutdown(shutdownContext); err != nil {
+		log.Printf("stop export jobs: %v", err)
+	}
+	cancelShutdown()
 	log.Print("Sermon Companion has closed")
 }
 

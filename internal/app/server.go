@@ -42,13 +42,37 @@ type Server struct {
 	log        *applog.Log
 	version    string
 	jobsMu     sync.Mutex
-	jobs       map[string]bool
+	jobs       map[string]context.CancelFunc
+	jobsWG     sync.WaitGroup
+	closing    bool
 }
 
 var errRecordingNotAdvanced = errors.New("wait for the recording to advance before starting the next segment")
 
 func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
-	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]bool{}}
+	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]context.CancelFunc{}}
+}
+
+// Shutdown cancels active exports and waits for them to record their final
+// state. The caller should stop accepting HTTP requests first.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.jobsMu.Lock()
+	s.closing = true
+	for _, cancel := range s.jobs {
+		cancel()
+	}
+	s.jobsMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.jobsWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // SetLog gives the interface the running log to display, and the version to
@@ -293,7 +317,7 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.jobsMu.Lock()
-	exporting := s.jobs[id]
+	_, exporting := s.jobs[id]
 	s.jobsMu.Unlock()
 	if exporting {
 		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to finish before deleting this service"))
@@ -415,6 +439,9 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("use the OBS dock to mark segments while recording")
 		}
+		if err := rejectExportMutation(session); err != nil {
+			return err
+		}
 		session.Segments = append(session.Segments, segment)
 		candidate := findSegment(session, segment.ID)
 		store.SnapSegmentBoundaries(session.Segments, segment.ID, boundaryToleranceFrames(rate))
@@ -498,6 +525,9 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be adjusted while recording")
 		}
+		if err := rejectExportMutation(session); err != nil {
+			return err
+		}
 		segment := findSegment(session, segmentID)
 		if request.Kind != nil && strings.TrimSpace(*request.Kind) != "" {
 			segment.Kind = strings.TrimSpace(*request.Kind)
@@ -563,6 +593,9 @@ func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be removed while recording")
 		}
+		if err := rejectExportMutation(session); err != nil {
+			return err
+		}
 		segment := findSegment(session, segmentID)
 		if segment == nil || segment.Archived {
 			return errors.New("segment not found")
@@ -583,6 +616,9 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 	session, err := s.store.Update(id, "segment.restored", map[string]string{"segmentId": segmentID}, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("segments cannot be restored while recording")
+		}
+		if err := rejectExportMutation(session); err != nil {
+			return err
 		}
 		segment := findSegment(session, segmentID)
 		if segment == nil || !segment.Archived {
@@ -644,7 +680,13 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 		request.Kind = kindFromLabel(request.Label)
 	}
 	marker := store.Marker{ID: store.NewObjectID("mark"), Kind: strings.TrimSpace(request.Kind), Label: strings.TrimSpace(request.Label), AtFrame: atFrame, At: *at, CreatedAt: time.Now().UTC()}
-	session, err := s.store.Update(r.PathValue("id"), "marker.added", marker, func(session *store.Session) error { session.Markers = append(session.Markers, marker); return nil })
+	session, err := s.store.Update(r.PathValue("id"), "marker.added", marker, func(session *store.Session) error {
+		if err := rejectExportMutation(session); err != nil {
+			return err
+		}
+		session.Markers = append(session.Markers, marker)
+		return nil
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -654,32 +696,46 @@ func (s *Server) addMarker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	session, err := s.store.Get(id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("session not found"))
-		return
-	}
-	if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s.jobsMu.Lock()
-	if s.jobs[id] {
+	if s.closing {
 		s.jobsMu.Unlock()
+		cancel()
+		writeError(w, http.StatusServiceUnavailable, errors.New("Sermon Companion is closing"))
+		return
+	}
+	if _, exists := s.jobs[id]; exists {
+		s.jobsMu.Unlock()
+		cancel()
 		writeError(w, http.StatusConflict, errors.New("an export is already running"))
 		return
 	}
-	s.jobs[id] = true
+	s.jobs[id] = cancel
+	s.jobsWG.Add(1)
 	s.jobsMu.Unlock()
+	job, err := s.master.Prepare(id)
+	if err != nil {
+		s.finishExportJob(id)
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	go func() {
-		if err := s.master.Export(id); err != nil {
+		defer s.finishExportJob(id)
+		if err := s.master.Run(ctx, job); err != nil {
 			log.Printf("export %s: %v", id, err)
 		}
-		s.jobsMu.Lock()
-		delete(s.jobs, id)
-		s.jobsMu.Unlock()
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "starting"})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "running"})
+}
+
+func (s *Server) finishExportJob(id string) {
+	s.jobsMu.Lock()
+	if cancel, exists := s.jobs[id]; exists {
+		cancel()
+		delete(s.jobs, id)
+	}
+	s.jobsMu.Unlock()
+	s.jobsWG.Done()
 }
 
 func (s *Server) audio(w http.ResponseWriter, r *http.Request) {
@@ -875,6 +931,13 @@ func markExportStale(session *store.Session) {
 		session.Export.Status = "stale"
 		session.Export.Error = "Service details or segments changed after this MP3 was created."
 	}
+}
+
+func rejectExportMutation(session *store.Session) error {
+	if session.Export != nil && session.Export.Status == "running" {
+		return errors.New("wait for the MP3 to finish before changing this service")
+	}
+	return nil
 }
 
 func kindFromLabel(label string) string {

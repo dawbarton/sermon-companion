@@ -105,6 +105,10 @@ NORMAL OPERATION
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
    Explorer, or download it through the browser.
 
+The editing controls are disabled while the MP3 is being created. If the
+application is closed during this work, it cancels the export and shows it as
+failed when reopened; click "Create MP3" again.
+
 A finished service can be deleted with the ✕ beside it in the list on the
 left, which removes its recording and its MP3s from the computer for good. A
 service still recording cannot be deleted.
