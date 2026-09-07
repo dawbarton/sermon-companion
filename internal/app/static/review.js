@@ -1,5 +1,5 @@
 "use strict";
-const {api, formatTime, parseTime, suggestSegmentRange} = window.SC;
+const {api, formatTime, parseTime, suggestSegmentRange, splittableSegmentAt} = window.SC;
 const elementIDs = [
   "session-list", "empty", "detail", "session-details", "session-title", "church",
   "session-meta", "audio", "open-folder",
@@ -7,7 +7,7 @@ const elementIDs = [
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
   "marker-time", "export", "download", "export-status", "error",
-  "show-add-segment", "add-segment", "cancel-add-segment", "new-segment-label",
+  "show-add-segment", "split-segment", "add-segment", "cancel-add-segment", "new-segment-label",
   "new-segment-start", "new-segment-end", "removed-panel", "gap-seconds",
   "removed-count", "removed-segments"
 ];
@@ -185,6 +185,7 @@ function render() {
   elements["session-title"].disabled = exporting;
   elements.church.disabled = exporting;
   elements["show-add-segment"].disabled = exporting;
+  renderSplitControl();
   if (exporting) elements["add-segment"].classList.add("hidden");
   for (const control of elements["add-marker"].querySelectorAll("input, button")) control.disabled = exporting;
   elements.download.classList.toggle("hidden", exp?.status !== "completed");
@@ -556,6 +557,16 @@ function renderPlayhead() {
   const visible = time >= waveform.viewStart && time <= waveform.viewEnd;
   elements.playhead.classList.toggle("hidden", !visible);
   if (visible) elements.playhead.style.left = `${100*(time-waveform.viewStart)/(waveform.viewEnd-waveform.viewStart)}%`;
+  renderSplitControl();
+}
+
+function renderSplitControl() {
+  if (!current) return;
+  const time = elements.audio.currentTime || 0;
+  const segment = splittableSegmentAt(time, activeSegments());
+  const disabled = isRecording(current) || isExporting(current) || !segment;
+  elements["split-segment"].disabled = disabled;
+  elements["split-segment"].title = segment ? `Split ${segment.label} at ${formatTime(time, true)}` : "Place the cursor at least 0.1 seconds inside a segment";
 }
 
 function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
@@ -682,6 +693,21 @@ elements["show-add-segment"].addEventListener("click", () => {
 });
 
 elements["cancel-add-segment"].addEventListener("click", () => elements["add-segment"].classList.add("hidden"));
+
+elements["split-segment"].addEventListener("click", async () => {
+  const atSeconds = elements.audio.currentTime || 0;
+  const segment = splittableSegmentAt(atSeconds, activeSegments());
+  if (!segment) {
+    showError(new Error("Place the cursor at least 0.1 seconds inside a segment to split it."));
+    return;
+  }
+  stopSegmentPlayback();
+  try {
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}/split`, {method: "POST", body: JSON.stringify({atSeconds})});
+    elements.error.textContent = "";
+    render();
+  } catch (error) { showError(error); }
+});
 
 elements["add-segment"].addEventListener("submit", async event => {
   event.preventDefault();

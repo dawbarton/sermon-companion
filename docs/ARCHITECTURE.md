@@ -167,6 +167,12 @@ The ordinary review UI exposes only labels. For a manually added segment or
 marker, the server derives a lower-case, hyphenated kind from its label. The API
 retains an optional explicit kind for future integrations.
 
+Splitting is one revision-checked store transaction: the original segment keeps
+its ID and becomes the left half, while a new right half inherits its kind,
+label, and inclusion state. The browser enables the operation only when its
+playback cursor is at least 0.1 seconds inside both edges. The API independently
+converts that time to an exact frame and enforces the same minimum.
+
 ## Durability
 
 The data directory is `%LOCALAPPDATA%\Sermon Companion` on Windows and

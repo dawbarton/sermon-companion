@@ -83,6 +83,9 @@ Choose the service in the list on the left. Then:
   hear only where it begins and ends while adjusting those points.
 - Exact times can be typed into the Start and End boxes. Every change to a part
   is saved as it is made, so there is nothing to press afterwards.
+- Put the playback cursor inside a part and press **Split at cursor** to divide
+  it there. Both parts keep the same label and **Use** setting. The button is
+  available only when at least 0.1 seconds will remain on each side.
 - Add a part that was missed, or remove one that is not wanted. If the playback
   cursor is inside an existing part, **Add segment** starts at the first free
   time after it. Removing is reversible: removed parts stay listed and can be

@@ -91,6 +91,8 @@ NORMAL OPERATION
    its own Play button, with First 5s and Last 5s for checking where it begins and ends.
    For coarse adjustments, drag a segment or either of its edges on the waveform.
    Use Zoom and Pan, or enter exact start and end times, for fine adjustments.
+   Put the playback cursor inside a segment and use Split at cursor to divide it;
+   both resulting parts keep the same label and Use setting.
    Every change to a segment is saved as it is made. Segments stop when they meet
    a neighbour and cannot overlap. Use Add segment for a missed interval, or
    Remove for an unwanted one. Removed segments can be restored from the panel

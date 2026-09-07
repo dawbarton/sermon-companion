@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
 	mux.HandleFunc("PATCH /api/sessions/{id}/segments/{segmentID}", s.patchSegment)
+	mux.HandleFunc("POST /api/sessions/{id}/segments/{segmentID}/split", s.splitSegment)
 	mux.HandleFunc("DELETE /api/sessions/{id}/segments/{segmentID}", s.archiveSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/{segmentID}/stop", s.stopSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/{segmentID}/restore", s.restoreSegment)
@@ -621,6 +622,90 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		segment.UpdatedAt = time.Now().UTC()
 		payload["after"] = cloneSegmentValue(*segment)
+		markExportStale(session)
+		return nil
+	})
+	if err != nil {
+		writeSessionMutationError(w, err)
+		return
+	}
+	s.writeSession(w, http.StatusOK, session)
+}
+
+func (s *Server) splitSegment(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		At *float64 `json:"atSeconds"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if request.At == nil {
+		writeError(w, http.StatusBadRequest, errors.New("atSeconds is required"))
+		return
+	}
+	if !finite(*request.At) || *request.At < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("split time must be a finite, non-negative value"))
+		return
+	}
+	expected, err := requireRevision(r)
+	if err != nil {
+		writeError(w, http.StatusPreconditionRequired, err)
+		return
+	}
+	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
+	beforeSession, err := s.store.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, errors.New("session not found"))
+		return
+	}
+	before := findSegment(beforeSession, segmentID)
+	if before == nil || before.Archived {
+		writeError(w, http.StatusNotFound, errors.New("segment not found"))
+		return
+	}
+	payload := map[string]any{"requestedAtSeconds": *request.At}
+	session, err := s.store.UpdateAtRevision(id, &expected, "segment.split", payload, func(session *store.Session) error {
+		if session.Status == "recording" || session.Status == "starting" {
+			return errors.New("segments cannot be split while recording")
+		}
+		if err := rejectExportMutation(session); err != nil {
+			return err
+		}
+		segment := findSegment(session, segmentID)
+		if segment == nil || segment.Archived {
+			return errors.New("segment not found")
+		}
+		if segment.EndFrame == nil || *segment.EndFrame <= segment.StartFrame {
+			return errors.New("only a complete segment can be split")
+		}
+		rate := sessionSampleRate(session, s.settings.Get().Capture.SampleRate)
+		splitFrame := secondsToFrame(*request.At, rate)
+		endFrame := *segment.EndFrame
+		minimumFrames := secondsToFrame(0.1, rate)
+		if splitFrame <= segment.StartFrame || splitFrame >= endFrame || splitFrame-segment.StartFrame < minimumFrames || endFrame-splitFrame < minimumFrames {
+			return errors.New("split must leave at least 0.1 seconds on each side")
+		}
+		now := time.Now().UTC()
+		payload["before"] = cloneSegmentValue(*segment)
+		right := cloneSegmentValue(*segment)
+		right.ID = store.NewObjectID("seg")
+		right.StartFrame = splitFrame
+		right.CreatedAt, right.UpdatedAt = now, now
+		segment.EndFrame = uint64Pointer(splitFrame)
+		segment.UpdatedAt = now
+		session.Segments = append(session.Segments, right)
+		syncSegmentSeconds(session, rate)
+		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
+			return err
+		}
+		left, storedRight := findSegment(session, segmentID), findSegment(session, right.ID)
+		if left == nil || storedRight == nil {
+			return errors.New("split segments could not be recovered")
+		}
+		payload["splitFrame"] = splitFrame
+		payload["left"] = cloneSegmentValue(*left)
+		payload["right"] = cloneSegmentValue(*storedRight)
 		markExportStale(session)
 		return nil
 	})

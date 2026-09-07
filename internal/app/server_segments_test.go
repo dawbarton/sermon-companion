@@ -196,6 +196,96 @@ func TestSegmentAPIRejectsOverlapsAndAllowsTouchingBoundaries(t *testing.T) {
 	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/export", `{}`, http.StatusBadRequest, "overlaps")
 }
 
+func TestSplitSegmentUsesAnExactFrameAndPreservesItsProperties(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Split test", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, endFrame := 15.0, uint64(720_000)
+	if _, err := sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status, s.Duration = "stopped", 20
+		s.Capture = store.CaptureInfo{SampleRate: 48_000, TotalFrames: 960_000}
+		s.Export = &store.ExportInfo{Status: "completed", StartedAt: time.Now(), Output: "exports/old.mp3"}
+		s.Segments = []store.Segment{{ID: "original", Kind: "sermon", Label: "Sermon", StartFrame: 240_000, EndFrame: &endFrame, Start: 5, End: &end, Include: false, CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
+
+	updated := requestSession(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/original/split", `{"atSeconds":9.125}`)
+	if len(updated.Segments) != 2 {
+		t.Fatalf("split created %d segments, want two", len(updated.Segments))
+	}
+	left, right := updated.Segments[0], updated.Segments[1]
+	if left.ID != "original" || left.EndFrame == nil || *left.EndFrame != 438_000 || right.StartFrame != 438_000 || right.EndFrame == nil || *right.EndFrame != 720_000 {
+		t.Fatalf("split boundaries = %#v, %#v", left, right)
+	}
+	if right.ID == left.ID || right.Kind != left.Kind || right.Label != left.Label || right.Include != left.Include {
+		t.Fatalf("split properties = %#v, %#v", left, right)
+	}
+	if left.End == nil || *left.End != 9.125 || right.Start != 9.125 {
+		t.Fatalf("derived split times = %#v, %#v", left.End, right.Start)
+	}
+	if updated.Export == nil || updated.Export.Status != "stale" {
+		t.Fatalf("split did not invalidate export: %#v", updated.Export)
+	}
+	events, err := sessions.Events(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := events[len(events)-1]
+	if last.Type != "segment.split" {
+		t.Fatalf("last event = %q", last.Type)
+	}
+	payload, ok := last.Payload.(map[string]any)
+	if !ok || payload["splitFrame"] != float64(438_000) || payload["before"] == nil || payload["left"] == nil || payload["right"] == nil {
+		t.Fatalf("split audit payload = %#v", last.Payload)
+	}
+}
+
+func TestSplitSegmentRejectsPositionsTooCloseToAnEdge(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Split validation", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, endFrame := 15.0, uint64(720_000)
+	if _, err := sessions.Update(session.ID, "test.ready", nil, func(s *store.Session) error {
+		s.Status, s.Duration = "stopped", 20
+		s.Capture = store.CaptureInfo{SampleRate: 48_000, TotalFrames: 960_000}
+		s.Segments = []store.Segment{{ID: "original", Label: "Sermon", StartFrame: 240_000, EndFrame: &endFrame, Start: 5, End: &end, Include: true}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
+	path := "/api/sessions/" + session.ID + "/segments/original/split"
+
+	requestError(t, handler, http.MethodPost, path, `{"atSeconds":5.05}`, http.StatusBadRequest, "at least 0.1 seconds")
+	requestError(t, handler, http.MethodPost, path, `{"atSeconds":14.95}`, http.StatusBadRequest, "at least 0.1 seconds")
+	requestError(t, handler, http.MethodPost, path, `{"atSeconds":16}`, http.StatusBadRequest, "at least 0.1 seconds")
+	requestError(t, handler, http.MethodPost, path, `{}`, http.StatusBadRequest, "atSeconds is required")
+	stored, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Segments) != 1 || stored.Segments[0].EndFrame == nil || *stored.Segments[0].EndFrame != endFrame {
+		t.Fatalf("rejected split changed the segment: %#v", stored.Segments)
+	}
+}
+
 func TestStartingSegmentsAtSameFrameCannotCreateTwoOpenSegments(t *testing.T) {
 	now := time.Now()
 	session := &store.Session{Segments: []store.Segment{{ID: "first", Label: "First", StartFrame: 48_000, Start: 1, CreatedAt: now, UpdatedAt: now}}}
@@ -239,6 +329,7 @@ func TestSegmentChangesAreBlockedWhileExportRuns(t *testing.T) {
 	requestError(t, handler, http.MethodPatch, "/api/sessions/"+session.ID+"/segments/one", `{"label":"Changed"}`, http.StatusBadRequest, "wait for the MP3")
 	requestError(t, handler, http.MethodDelete, "/api/sessions/"+session.ID+"/segments/one", "", http.StatusBadRequest, "wait for the MP3")
 	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", `{"label":"Other","startSeconds":11,"endSeconds":12}`, http.StatusBadRequest, "wait for the MP3")
+	requestError(t, handler, http.MethodPost, "/api/sessions/"+session.ID+"/segments/one/split", `{"atSeconds":5}`, http.StatusBadRequest, "wait for the MP3")
 }
 
 func TestExportPreflightFailureIsReturnedSynchronously(t *testing.T) {

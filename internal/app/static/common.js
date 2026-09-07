@@ -51,5 +51,10 @@ window.SC = {
     }
     if (duration-start < minimum) return null;
     return {start, end: Math.min(duration, start+preferred)};
+  },
+  splittableSegmentAt(cursor, segments) {
+    cursor = Number(cursor) || 0;
+    const tolerance = 1e-6;
+    return (segments || []).find(segment => !segment.archived && Number.isFinite(segment.startSeconds) && Number.isFinite(segment.endSeconds) && cursor-segment.startSeconds+tolerance >= 0.1 && segment.endSeconds-cursor+tolerance >= 0.1) || null;
   }
 };

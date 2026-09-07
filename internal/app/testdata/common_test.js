@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 
 global.window = {};
 require("../static/common.js");
-const {suggestSegmentRange} = window.SC;
+const {suggestSegmentRange, splittableSegmentAt} = window.SC;
 
 test("a cursor inside a segment moves to the first following gap", () => {
   const range = suggestSegmentRange(15, 100, [
@@ -35,4 +35,14 @@ test("no range is suggested when every later time is occupied", () => {
     {startSeconds: 90, endSeconds: 100}
   ]);
   assert.equal(range, null);
+});
+
+test("a split candidate must contain enough audio on both sides", () => {
+  const segment = {id: "sermon", startSeconds: 10, endSeconds: 20};
+  assert.equal(splittableSegmentAt(15, [segment]), segment);
+  assert.equal(splittableSegmentAt(10.1, [segment]), segment);
+  assert.equal(splittableSegmentAt(19.9, [segment]), segment);
+  assert.equal(splittableSegmentAt(10.05, [segment]), null);
+  assert.equal(splittableSegmentAt(19.95, [segment]), null);
+  assert.equal(splittableSegmentAt(15, [{...segment, archived: true}]), null);
 });
