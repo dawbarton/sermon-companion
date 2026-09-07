@@ -264,7 +264,21 @@ func (s *Store) getLocked(id string) (*Session, error) {
 	if err := recoverSessionFiles(dir, id); err != nil {
 		return nil, err
 	}
-	return readSnapshot(filepath.Join(dir, snapshotName), id)
+	session, err := readSnapshot(filepath.Join(dir, snapshotName), id)
+	if err != nil {
+		return nil, err
+	}
+	fromVersion := session.SchemaVersion
+	if err := migrateSession(session); err != nil {
+		return nil, err
+	}
+	if session.SchemaVersion != fromVersion {
+		payload := map[string]any{"from": fromVersion, "to": session.SchemaVersion, "assumedSampleRate": session.Capture.SampleRate}
+		if err := s.saveLocked(session, "session.schema_migrated", payload); err != nil {
+			return nil, fmt.Errorf("save migrated session: %w", err)
+		}
+	}
+	return session, nil
 }
 
 func (s *Store) Events(id string) ([]Event, error) {

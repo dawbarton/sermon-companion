@@ -32,9 +32,8 @@ try {
     }
     New-Item -ItemType Directory -Force -Path "dist\SermonCompanion" | Out-Null
     # -H=windowsgui links the executable without a console, so double-clicking
-    # it leaves the tray icon and no black window. Output redirected by another
-    # program still arrives, and the application attaches to a command prompt's
-    # console when it is started from one.
+    # it leaves the tray icon and no black window. The application does not
+    # attach to a command prompt; output captured by redirection still arrives.
     go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version" -o "dist\SermonCompanion\SermonCompanion.exe" .\cmd\sermon-companion
     Copy-Item "scripts\Start Sermon Companion.cmd" "dist\SermonCompanion\Start Sermon Companion.cmd"
     Copy-Item "docs\WINDOWS-SETUP.md" "dist\SermonCompanion\README.txt"

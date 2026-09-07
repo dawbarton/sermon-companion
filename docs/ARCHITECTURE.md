@@ -206,6 +206,12 @@ work directory and renamed
 only after FFmpeg succeeds. Successful intermediate files are then removed;
 failed intermediates and the mastering log remain for diagnosis.
 
+Schema-1 snapshots stored segment and marker positions only as seconds. On
+first read they are converted transactionally to schema 2 audio frames using
+the legacy 48 kHz recording format, and a `session.schema_migrated` event records
+both schema versions and that sample-rate assumption. Invalid legacy timelines
+are reported rather than partially converted.
+
 Start-up recovery checks both the published `audio.flac` and the staging
 `audio.part.flac`. It retains whichever valid recording exists, repairs the
 snapshot's filename and duration, and reports missing or unprobeable audio

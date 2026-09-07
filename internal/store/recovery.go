@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -38,6 +39,55 @@ func readSnapshot(path, expectedID string) (*Session, error) {
 		return nil, fmt.Errorf("unsupported session schema version %d (this application supports up to %d)", session.SchemaVersion, SchemaVersion)
 	}
 	return &session, nil
+}
+
+const legacySampleRate = 48_000
+
+func migrateSession(session *Session) error {
+	if session.SchemaVersion == SchemaVersion {
+		return nil
+	}
+	if session.SchemaVersion != 1 {
+		return fmt.Errorf("no migration is available from session schema version %d", session.SchemaVersion)
+	}
+	rate := session.Capture.SampleRate
+	if rate <= 0 {
+		rate = legacySampleRate
+	}
+	toFrame := func(seconds float64) (uint64, error) {
+		if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+			return 0, fmt.Errorf("invalid legacy time %v", seconds)
+		}
+		return uint64(math.Round(seconds * float64(rate))), nil
+	}
+	for index := range session.Segments {
+		segment := &session.Segments[index]
+		start, err := toFrame(segment.Start)
+		if err != nil {
+			return fmt.Errorf("migrate segment %q start: %w", segment.Label, err)
+		}
+		segment.StartFrame = start
+		if segment.End != nil {
+			end, err := toFrame(*segment.End)
+			if err != nil {
+				return fmt.Errorf("migrate segment %q end: %w", segment.Label, err)
+			}
+			segment.EndFrame = &end
+		}
+	}
+	for index := range session.Markers {
+		frame, err := toFrame(session.Markers[index].At)
+		if err != nil {
+			return fmt.Errorf("migrate marker %q: %w", session.Markers[index].Label, err)
+		}
+		session.Markers[index].AtFrame = frame
+	}
+	if err := ValidateNoSegmentOverlaps(session.Segments); err != nil {
+		return fmt.Errorf("migrate legacy timeline: %w", err)
+	}
+	session.Capture.SampleRate = rate
+	session.SchemaVersion = SchemaVersion
+	return nil
 }
 
 // recoverSessionFiles resolves an interrupted metadata transaction. The full

@@ -297,6 +297,45 @@ func TestUpdateAtRevisionRejectsStaleWriter(t *testing.T) {
 	}
 }
 
+func TestSchemaOneSessionMigratesTimesToFramesTransactionally(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Legacy", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := 2.5
+	session.SchemaVersion = 1
+	session.Capture = CaptureInfo{}
+	session.Segments = []Segment{{ID: "one", Label: "Sermon", Start: 1.25, End: &end, Include: true}}
+	session.Markers = []Marker{{ID: "mark", Label: "Note", At: 2}}
+	dir, _ := sessions.SessionDir(session.ID)
+	writeSnapshotForTest(t, filepath.Join(dir, snapshotName), session)
+
+	migrated, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != SchemaVersion || migrated.Capture.SampleRate != legacySampleRate {
+		t.Fatalf("migration metadata = schema %d, rate %d", migrated.SchemaVersion, migrated.Capture.SampleRate)
+	}
+	if migrated.Segments[0].StartFrame != 60_000 || migrated.Segments[0].EndFrame == nil || *migrated.Segments[0].EndFrame != 120_000 {
+		t.Fatalf("migrated segment = %#v", migrated.Segments[0])
+	}
+	if migrated.Markers[0].AtFrame != 96_000 {
+		t.Fatalf("migrated marker = %#v", migrated.Markers[0])
+	}
+	events, err := sessions.Events(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[len(events)-1].Type != "session.schema_migrated" || events[len(events)-1].Sequence != migrated.Revision {
+		t.Fatalf("migration event = %#v", events[len(events)-1])
+	}
+}
+
 func writeSnapshotForTest(t *testing.T, path string, session *Session) {
 	t.Helper()
 	data, err := json.MarshalIndent(session, "", "  ")
