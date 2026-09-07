@@ -71,9 +71,26 @@ func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id := now.Format("2006-01-02_150405") + "_" + randomID(3)
-	dir := filepath.Join(s.root, "sessions", id)
-	if err := os.MkdirAll(filepath.Join(dir, "exports"), 0o755); err != nil {
+	id, dir := "", ""
+	created := false
+	for attempt := 0; attempt < 10; attempt++ {
+		id = now.Format("2006-01-02_150405") + "_" + randomID(3)
+		dir = filepath.Join(s.root, "sessions", id)
+		err := os.Mkdir(dir, 0o755)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		created = true
+		break
+	}
+	if !created {
+		return nil, errors.New("could not allocate a unique session ID")
+	}
+	if err := os.Mkdir(filepath.Join(dir, "exports"), 0o755); err != nil {
+		_ = os.Remove(dir)
 		return nil, err
 	}
 	if strings.TrimSpace(title) == "" {
@@ -94,6 +111,7 @@ func (s *Store) Create(title, church string, now time.Time) (*Session, error) {
 		Markers:       []Marker{},
 	}
 	if err := s.saveLocked(session, "session.created", map[string]any{"title": session.Title, "church": session.Church}); err != nil {
+		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 	return clone(session), nil

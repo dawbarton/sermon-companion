@@ -45,13 +45,16 @@ type Server struct {
 	jobsMu     sync.Mutex
 	jobs       map[string]context.CancelFunc
 	jobsWG     sync.WaitGroup
+	background context.Context
+	cancelWork context.CancelFunc
 	closing    bool
 }
 
 var errRecordingNotAdvanced = errors.New("wait for the recording to advance before starting the next segment")
 
 func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
-	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]context.CancelFunc{}}
+	background, cancelWork := context.WithCancel(context.Background())
+	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]context.CancelFunc{}, background: background, cancelWork: cancelWork}
 }
 
 // Shutdown cancels active exports and waits for them to record their final
@@ -59,6 +62,9 @@ func NewServer(settings *config.Settings, sessions *store.Store, captureManager 
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.jobsMu.Lock()
 	s.closing = true
+	if s.cancelWork != nil {
+		s.cancelWork()
+	}
 	for _, cancel := range s.jobs {
 		cancel()
 	}
@@ -365,12 +371,25 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 	// request would otherwise decode the whole recording while the operator is
 	// already trying to listen to it. Build the waveform now, so that nothing is
 	// competing with the recording for the disk when a segment is first played.
-	go func(id string) {
-		if _, err := s.waveform.Generate(context.Background(), id); err != nil {
+	s.generateWaveform(session.ID)
+	s.writeSession(w, http.StatusOK, session)
+}
+
+func (s *Server) generateWaveform(id string) {
+	s.jobsMu.Lock()
+	if s.closing {
+		s.jobsMu.Unlock()
+		return
+	}
+	s.jobsWG.Add(1)
+	ctx := s.background
+	s.jobsMu.Unlock()
+	go func() {
+		defer s.jobsWG.Done()
+		if _, err := s.waveform.Generate(ctx, id); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("waveform for %s: %v", id, err)
 		}
-	}(session.ID)
-	s.writeSession(w, http.StatusOK, session)
+	}()
 }
 
 func (s *Server) startSegment(w http.ResponseWriter, r *http.Request) {
@@ -1092,10 +1111,17 @@ func start(command *exec.Cmd) error {
 }
 
 func decodeJSON(r *http.Request, destination interface{}) error {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return fmt.Errorf("invalid request: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			err = errors.New("more than one JSON value")
+		}
+		return fmt.Errorf("invalid request: trailing content: %w", err)
 	}
 	return nil
 }

@@ -2,9 +2,11 @@ package capture
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dawbarton/sermon-companion/internal/atomicfile"
 	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/proc"
 	"github.com/dawbarton/sermon-companion/internal/store"
@@ -191,7 +194,7 @@ func (m *Manager) wait(run *running) {
 	}
 	audioPath := result.PartPath
 	if result.Error == nil {
-		if err := os.Rename(result.PartPath, run.path); err != nil {
+		if err := atomicfile.Replace(result.PartPath, run.path); err != nil {
 			status, errText = "failed", fmt.Sprintf("publish recording: %v", err)
 		} else {
 			audioPath = run.path
@@ -348,13 +351,22 @@ func printableCommand(program string, args []string) string {
 }
 
 func probeDuration(program, path string) (float64, error) {
-	command := proc.Command(program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := proc.CommandContext(ctx, program, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
 	var output bytes.Buffer
 	command.Stdout, command.Stderr = &output, &output
 	if err := command.Run(); err != nil {
 		return 0, err
 	}
-	return strconv.ParseFloat(strings.TrimSpace(output.String()), 64)
+	duration, err := strconv.ParseFloat(strings.TrimSpace(output.String()), 64)
+	if err != nil {
+		return 0, err
+	}
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0, fmt.Errorf("FFprobe returned invalid duration %q", strings.TrimSpace(output.String()))
+	}
+	return duration, nil
 }
 
 func sampleRate(session *store.Session, fallback int) int {

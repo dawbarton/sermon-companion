@@ -130,6 +130,25 @@ func TestInterruptedCaptureReportsMissingAudio(t *testing.T) {
 	}
 }
 
+func TestFFmpegZeroProgressDoesNotClaimAudioStarted(t *testing.T) {
+	c := config.DefaultConfig()
+	capture := &ffmpegCapture{
+		config:       c,
+		clock:        newFrameClock(c.Capture.SampleRate),
+		first:        make(chan struct{}),
+		progressDone: make(chan error, 1),
+	}
+	capture.readProgress(strings.NewReader("out_time_us=0\nprogress=continue\n"))
+	select {
+	case <-capture.first:
+		t.Fatal("zero FFmpeg progress was treated as captured audio")
+	default:
+	}
+	if err := <-capture.progressDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func corruptSnapshotSchema(t *testing.T, path string) []byte {
 	t.Helper()
 	original, err := os.ReadFile(path)

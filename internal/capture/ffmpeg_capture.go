@@ -100,7 +100,7 @@ func (c *ffmpegCapture) readProgress(progress io.Reader) {
 			continue
 		}
 		microseconds, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || microseconds < 0 {
+		if err != nil || microseconds <= 0 {
 			continue
 		}
 		frames := uint64(math.Round(float64(microseconds) / 1e6 * float64(c.config.Capture.SampleRate)))
