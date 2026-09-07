@@ -57,8 +57,12 @@ select:disabled { color: var(--muted); cursor: not-allowed; }
 .app-shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { border-right: 1px solid var(--line); padding: 1rem; background: #0d1116; }
 .sidebar h1 { margin: 0 0 1rem; font-size: 1.2rem; }
-.sidebar-footer { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--line); }
-.sidebar-footer a { color: var(--muted); font-size: .85rem; }
+.sidebar-footer { display: grid; justify-items: start; gap: .4rem; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.sidebar-footer a, .sidebar-footer .link-button { color: var(--muted); font-size: .85rem; }
+.link-button { padding: 0; background: transparent; text-decoration: underline; }
+.link-button:hover { color: var(--text); }
+.config-status { margin: 0; font-size: .8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.config-status:empty { display: none; }
 .session-list { display: grid; gap: .55rem; }
 .session-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; border: 1px solid transparent; border-radius: .55rem; background: var(--panel-2); }
 .session-card.selected { border-color: var(--accent); }

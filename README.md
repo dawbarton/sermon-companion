@@ -147,9 +147,11 @@ then. Change or switch off that period with `retentionDays` below.
 
 ## Settings
 
-`config.json` is created in the folder above on first run. Edit it with a text
-editor and restart the application. The settings most likely to need changing
-are:
+`config.json` is created in the folder above on first run. The review page has an
+Edit settings file link, beneath the application log link, which opens it in a
+text editor: Notepad on Windows, the default plain-text editor on macOS. Save the
+file and restart the application for the changes to take effect. The settings
+most likely to need changing are:
 
 | Setting | Meaning |
 | --- | --- |

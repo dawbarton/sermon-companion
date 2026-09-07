@@ -9,7 +9,7 @@ const elementIDs = [
   "marker-time", "export", "download", "export-status", "error",
   "show-add-segment", "split-segment", "add-segment", "cancel-add-segment", "new-segment-label",
   "new-segment-start", "new-segment-end", "removed-panel", "gap-seconds",
-  "removed-count", "removed-segments"
+  "removed-count", "removed-segments", "open-config", "config-status"
 ];
 const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElementById(id)]));
 
@@ -730,6 +730,19 @@ elements.export.addEventListener("click", async () => {
 elements["open-folder"].addEventListener("click", async () => {
   try { await api(`/api/sessions/${current.id}/open-export-folder`, {method: "POST", body: "{}"}); }
   catch (error) { showError(error); }
+});
+
+// The settings file is opened in a text editor on this computer, so the page
+// reports what happened beside the link: the error element belongs to a chosen
+// service, and this link is available before one is chosen.
+elements["open-config"].addEventListener("click", async () => {
+  elements["config-status"].textContent = "Opening the settings file…";
+  try {
+    const result = await api("/api/open-config-file", {method: "POST", body: "{}"});
+    elements["config-status"].textContent = `Opened ${result.path}. Save your changes, then restart Sermon Companion for them to take effect.`;
+  } catch (error) {
+    elements["config-status"].textContent = error.message;
+  }
 });
 
 function showError(error) { elements.error.textContent = error.message; }

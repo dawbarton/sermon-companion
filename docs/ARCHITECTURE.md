@@ -110,6 +110,14 @@ itself, such as an FFmpeg found beside the executable, are applied over the save
 configuration rather than into it: writing a resolved absolute path back to
 `config.json` would leave it wrong as soon as the application folder moved.
 
+Everything else in the file is still edited by hand, and the application has no
+window from which to offer it, so the review page links to it beside the log
+link and `POST /api/open-config-file` hands the path to an editor. Windows is
+sent to Notepad by name rather than through the `.json` association, which
+belongs to whichever developer tool was installed last or to nothing at all;
+macOS uses `open -t` for the same reason. An external edit is read at the next
+start-up, so the page says to restart after saving.
+
 The saved configuration is decoded strictly and validated before retention or
 capture is allowed to run. Unknown fields are errors, which is particularly
 important for `retentionDays`: a misspelt request to keep every recording must

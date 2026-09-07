@@ -50,7 +50,8 @@ ONE-TIME TECHNICAL SETUP
    next time. Devices are identified by the identifier Windows gives them, not
    by name alone, so several devices with similar names are not confused.
 
-4. Open:
+4. Open the settings file. On the review page, click "Edit settings file" beneath
+   the application log link; it opens in Notepad. It can also be opened by hand:
 
      %LOCALAPPDATA%\Sermon Companion\config.json
 

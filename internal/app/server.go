@@ -40,6 +40,7 @@ type Server struct {
 	static     fs.FS
 	openFolder func(string) error
 	openLink   func(string) error
+	openEditor func(string) error
 	log        *applog.Log
 	version    string
 	jobsMu     sync.Mutex
@@ -54,7 +55,7 @@ var errRecordingNotAdvanced = errors.New("wait for the recording to advance befo
 
 func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
 	background, cancelWork := context.WithCancel(context.Background())
-	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, jobs: map[string]context.CancelFunc{}, background: background, cancelWork: cancelWork}
+	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, openEditor: openInEditor, jobs: map[string]context.CancelFunc{}, background: background, cancelWork: cancelWork}
 }
 
 // Shutdown cancels active exports and waits for them to record their final
@@ -111,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/export-file", s.exportFile)
 	mux.HandleFunc("POST /api/sessions/{id}/open-export-folder", s.openExportFolder)
 	mux.HandleFunc("POST /api/open-review-page", s.openReviewPage)
+	mux.HandleFunc("POST /api/open-config-file", s.openConfigFile)
 	mux.HandleFunc("GET /api/devices", s.listDevices)
 	mux.HandleFunc("POST /api/devices", s.selectDevice)
 	mux.HandleFunc("GET /api/log", s.readLog)
@@ -981,6 +983,26 @@ func (s *Server) openReviewPage(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "opened", "url": url})
 }
 
+// openConfigFile hands config.json to a text editor. The application has no
+// window and no console, so the review page is the only place an operator can
+// be pointed at the file that decides how the next service records.
+func (s *Server) openConfigFile(w http.ResponseWriter, _ *http.Request) {
+	path := s.settings.Path()
+	if path == "" {
+		writeError(w, http.StatusNotFound, errors.New("this application is running without a configuration file"))
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("the configuration file %s could not be opened: %w", path, err))
+		return
+	}
+	if err := s.openEditor(path); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("open %s in an editor: %w", path, err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "opened", "path": path})
+}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	events, err := s.store.Events(r.PathValue("id"))
 	if err != nil {
@@ -1155,6 +1177,28 @@ func openFolder(path string) error {
 		command = exec.Command("explorer.exe", path)
 	case "darwin":
 		command = exec.Command("open", path)
+	default:
+		command = exec.Command("xdg-open", path)
+	}
+	return start(command)
+}
+
+// openInEditor hands a text file to an editor the operator already has. Windows
+// is sent to Notepad by name rather than through the file association, because
+// .json belongs to whatever developer tool was installed last, or to nothing at
+// all, and the operator would be asked to choose a program instead of being
+// shown their settings. Like openFolder these are windowed programs, so they are
+// started directly rather than through internal/proc, whose purpose is hiding a
+// console window; here the window is the point.
+func openInEditor(path string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		command = exec.Command("notepad.exe", path)
+	case "darwin":
+		// -t opens the default editor for plain text rather than the
+		// application registered for .json.
+		command = exec.Command("open", "-t", path)
 	default:
 		command = exec.Command("xdg-open", path)
 	}
