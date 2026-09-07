@@ -51,9 +51,9 @@ In the OBS dock:
 1. Check that the device list at the top names the HDMI capture, then press
    **Start Recording**. The whole service is now being recorded. The service is
    named after today's date; the review page can rename it afterwards.
-2. Press **Reading**, **Sermon**, or **Q&A** when each part begins. Pressing the
-   next one ends the previous one. Press the same button again to end a part
-   without starting another.
+2. Press **Tag Reading start**, **Tag Sermon start**, or **Tag Q&A start** when
+   each part begins. Pressing the next start button ends the previous part. Press
+   its **Tag … end** button to end a part without starting another.
 3. **Add marker** notes a moment you want to find later, without starting a
    part.
 4. Press **Stop service** at the end.
@@ -83,8 +83,10 @@ Choose the service in the list on the left. Then:
   hear only where it begins and ends while adjusting those points.
 - Exact times can be typed into the Start and End boxes. Every change to a part
   is saved as it is made, so there is nothing to press afterwards.
-- Add a part that was missed, or remove one that is not wanted. Removing is
-  reversible: removed parts stay listed and can be restored.
+- Add a part that was missed, or remove one that is not wanted. If the playback
+  cursor is inside an existing part, **Add segment** starts at the first free
+  time after it. Removing is reversible: removed parts stay listed and can be
+  restored.
 - Untick **Use** to keep a part in the record but leave it out of the MP3.
 - Parts given the same label are levelled together. Cutting something out of the
   middle of a sermon leaves two parts both labelled Sermon, and they come out at
@@ -93,7 +95,9 @@ Choose the service in the list on the left. Then:
 - **Silence between segments**, below the list, sets the pause left between one
   part and the next in the MP3. It starts at two seconds, changes only the MP3,
   and is remembered for that service alone.
-- Press **Create MP3**, then **Open MP3 folder** or **Download MP3**.
+- Press **Create MP3**, then **Open MP3 folder** or **Download MP3**. If no parts
+  have ever been marked, the whole recording is normalised as one part and
+  exported. Parts deliberately removed or unticked are still respected.
 
 The service is read-only while its MP3 is being created. Closing Sermon
 Companion cancels any active export cleanly and records it as failed, ready to

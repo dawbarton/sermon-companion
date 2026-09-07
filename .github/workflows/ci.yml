@@ -30,6 +30,7 @@ jobs:
       - run: node --check internal/app/static/review.js
       - run: node --check internal/app/static/dock.js
       - run: node --check internal/app/static/log.js
+      - run: node --test internal/app/testdata/common_test.js
       - run: git diff --check
 
   windows:

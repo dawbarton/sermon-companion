@@ -2,6 +2,7 @@
 
 test:
 	go test ./...
+	node --test internal/app/testdata/common_test.js
 
 run-demo:
 	go run ./cmd/sermon-companion --demo --data-dir ./work/demo-data

@@ -34,7 +34,7 @@ function render() {
     button.className = `preset${isOpen ? " active" : ""}`;
     // One line per button, and nothing under it: the label already says what
     // pressing it does.
-    button.textContent = isOpen ? `End ${preset.label}` : `Start ${preset.label}`;
+    button.textContent = isOpen ? `Tag ${preset.label} end` : `Tag ${preset.label} start`;
     button.addEventListener("click", () => isOpen ? stopSegment(open.id) : startSegment(preset));
     return button;
   }));

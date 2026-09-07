@@ -1,5 +1,5 @@
 "use strict";
-const {api, formatTime, parseTime} = window.SC;
+const {api, formatTime, parseTime, suggestSegmentRange} = window.SC;
 const elementIDs = [
   "session-list", "empty", "detail", "session-details", "session-title", "church",
   "session-meta", "audio", "open-folder",
@@ -173,11 +173,13 @@ function render() {
   elements.markers.replaceChildren(...[...current.markers].sort((a,b) => a.atSeconds-b.atSeconds).map(markerRow));
   renderWaveform();
   const exp = current.export;
-  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3…" : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
+  elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3… This can take a few minutes." : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
   if (document.activeElement !== elements["gap-seconds"]) elements["gap-seconds"].value = gapSeconds(current);
   const exporting = isExporting(current);
+  elements["export-status"].classList.toggle("running", exporting);
   elements["gap-seconds"].disabled = exporting;
   elements.export.disabled = isRecording(current) || exporting;
+  elements.export.textContent = exporting ? "Creating MP3…" : "Create MP3";
   // The API refuses a change while an MP3 is being made, so the boxes say so
   // rather than accepting an edit that will bounce.
   elements["session-title"].disabled = exporting;
@@ -666,13 +668,16 @@ elements["gap-seconds"].addEventListener("change", async () => {
 
 elements["show-add-segment"].addEventListener("click", () => {
   const duration = Math.max(current?.durationSeconds || waveform.duration || 0, .1);
-  let start = clamp(elements.audio.currentTime || 0, 0, Math.max(0, duration-.1));
-  if (start >= duration-.1) start = Math.max(0, duration-60);
-  const end = Math.min(duration, start+60);
+  const range = suggestSegmentRange(elements.audio.currentTime || 0, duration, activeSegments());
+  if (!range) {
+    showError(new Error("There is no available time after the cursor for another segment."));
+    return;
+  }
   elements["new-segment-label"].value = "";
-  elements["new-segment-start"].value = formatTime(start, true);
-  elements["new-segment-end"].value = formatTime(Math.max(start+.1, end), true);
+  elements["new-segment-start"].value = formatTime(range.start, true);
+  elements["new-segment-end"].value = formatTime(range.end, true);
   elements["add-segment"].classList.remove("hidden");
+  elements.error.textContent = "";
   elements["new-segment-label"].focus();
 });
 

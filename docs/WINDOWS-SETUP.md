@@ -80,15 +80,15 @@ NORMAL OPERATION
    renamed on the review page. If the list shows "Not connected", the device
    used last time is absent: choose the right one before starting. A recording
    will not begin against a device that is missing.
-3. Click Start Reading, Start Sermon, and Start Q&A at the appropriate times.
-   Starting one part automatically ends any open part. Clicking an active part
-   ends it without starting another.
+3. Click Tag Reading start, Tag Sermon start, and Tag Q&A start at the
+   appropriate times. Starting one part automatically ends any open part.
+   Clicking its Tag … end button ends it without starting another.
 4. "Add marker" records a general note position without changing a segment.
 5. At the end of the service, click "Stop service".
 6. Click "Review Recordings" in the dock, click the notification-area icon, or
    open http://127.0.0.1:8765/ in a browser. Check and, if necessary, edit the
-   service title and church, then click "Save details". Each segment has its own
-   Play button, with First 5s and Last 5s for checking where it begins and ends.
+   service title and church; each field saves when it is left. Each segment has
+   its own Play button, with First 5s and Last 5s for checking where it begins and ends.
    For coarse adjustments, drag a segment or either of its edges on the waveform.
    Use Zoom and Pan, or enter exact start and end times, for fine adjustments.
    Every change to a segment is saved as it is made. Segments stop when they meet
@@ -98,8 +98,9 @@ NORMAL OPERATION
    exported. "Silence between segments", below the list, sets the pause left
    between one part and the next; it starts at two seconds and changes the MP3
    alone.
-7. Click "Create MP3". Parts sharing a label are measured together, so a sermon
-   split in two to drop something from the middle keeps one volume, while
+7. Click "Create MP3". If no parts were marked, the whole recording is
+   normalised and exported. Parts sharing a label are measured together, so a
+   sermon split in two to drop something from the middle keeps one volume, while
    differently labelled parts are levelled separately. The parts are then joined
    into one mono file. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File

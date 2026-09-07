@@ -27,5 +27,29 @@ window.SC = {
     let result = 0;
     for (const part of parts) result = result * 60 + part;
     return result;
+  },
+  // Suggest the first usable interval at or after the cursor. Complete,
+  // non-archived segments reserve their intervals whether or not they are
+  // included in the MP3, matching the backend overlap rule.
+  suggestSegmentRange(cursor, duration, segments) {
+    const minimum = 0.1;
+    const preferred = 60;
+    duration = Math.max(Number(duration) || 0, minimum);
+    let start = Math.max(0, Math.min(Number(cursor) || 0, duration));
+    if (start >= duration-minimum) start = Math.max(0, duration-preferred);
+    const ordered = (segments || [])
+      .filter(segment => !segment.archived && Number.isFinite(segment.startSeconds) && Number.isFinite(segment.endSeconds) && segment.endSeconds > segment.startSeconds)
+      .sort((a, b) => a.startSeconds-b.startSeconds);
+    for (const segment of ordered) {
+      if (segment.endSeconds <= start) continue;
+      if (segment.startSeconds > start) {
+        if (segment.startSeconds-start >= minimum) {
+          return {start, end: Math.min(start+preferred, segment.startSeconds)};
+        }
+      }
+      start = Math.max(start, segment.endSeconds);
+    }
+    if (duration-start < minimum) return null;
+    return {start, end: Math.min(duration, start+preferred)};
   }
 };

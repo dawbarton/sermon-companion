@@ -22,7 +22,7 @@
             <label>Church <input id="church" required></label>
             <div id="session-meta" class="muted"></div>
           </form>
-          <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><a id="download" class="hidden"><button>Download MP3</button></a></div>
+          <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><p id="export-status" class="export-status" role="status" aria-live="polite"></p><a id="download" class="hidden"><button>Download MP3</button></a></div>
         </div>
         <audio id="audio" controls preload="metadata"></audio>
         <section class="waveform-card" aria-label="Recording waveform and segment editor">
@@ -44,7 +44,6 @@
           </div>
           <p class="waveform-help">Click to seek. Drag a segment to move it, or drag either edge to trim it. Segments stop at their neighbours and cannot cross. Zoom in before making fine adjustments.</p>
         </section>
-        <p id="export-status" class="muted"></p>
         <p id="error" class="error"></p>
         <div class="section-head">
           <h3>Segments</h3>
