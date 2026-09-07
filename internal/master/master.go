@@ -79,7 +79,7 @@ func (m *Master) Prepare(id string) (*Job, error) {
 	if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 		return nil, err
 	}
-	segments := exportSegments(session.Segments)
+	segments := m.exportPlan(session)
 	if len(segments) == 0 {
 		return nil, errors.New("there are no complete, included segments to export")
 	}
@@ -103,7 +103,7 @@ func (m *Master) Prepare(id string) (*Job, error) {
 		if err := store.ValidateNoSegmentOverlaps(s.Segments); err != nil {
 			return err
 		}
-		if len(exportSegments(s.Segments)) == 0 {
+		if len(m.exportPlan(s)) == 0 {
 			return errors.New("there are no complete, included segments to export")
 		}
 		s.Export = &store.ExportInfo{Status: "running", StartedAt: started}
@@ -115,7 +115,7 @@ func (m *Master) Prepare(id string) (*Job, error) {
 	if strings.TrimSpace(begun.Church) == "" {
 		begun.Church = m.config.Church
 	}
-	return &Job{id: id, session: begun, segments: exportSegments(begun.Segments), started: started, startRevision: begun.Revision, dir: dir, input: input}, nil
+	return &Job{id: id, session: begun, segments: m.exportPlan(begun), started: started, startRevision: begun.Revision, dir: dir, input: input}, nil
 }
 
 // Run performs a prepared export. Cancelling ctx stops the active FFmpeg child
@@ -418,6 +418,32 @@ func exportSegments(all []store.Segment) []store.Segment {
 	}
 	sort.SliceStable(segments, func(i, j int) bool { return segments[i].StartFrame < segments[j].StartFrame })
 	return segments
+}
+
+// exportPlan treats a service with no segment history as one complete segment.
+// This keeps the convenient default distinct from an operator deliberately
+// excluding, removing, or leaving incomplete the segments they created.
+func (m *Master) exportPlan(session *store.Session) []store.Segment {
+	segments := exportSegments(session.Segments)
+	if len(session.Segments) != 0 {
+		return segments
+	}
+	rate := session.Capture.SampleRate
+	if rate <= 0 {
+		rate = m.config.Capture.SampleRate
+	}
+	endFrame := session.Capture.TotalFrames
+	if endFrame == 0 && rate > 0 && session.Duration > 0 {
+		endFrame = uint64(math.Round(session.Duration * float64(rate)))
+	}
+	if endFrame == 0 || rate <= 0 {
+		return nil
+	}
+	end := float64(endFrame) / float64(rate)
+	return []store.Segment{{
+		ID: "entire-recording", Kind: "entire-recording", Label: "Entire recording",
+		StartFrame: 0, EndFrame: &endFrame, Start: 0, End: &end, Include: true,
+	}}
 }
 
 func segmentIDs(segments []store.Segment) []string {

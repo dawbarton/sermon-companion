@@ -54,6 +54,30 @@ func TestTwoPassPerSegmentExport(t *testing.T) {
 	}
 }
 
+func TestExportWithoutSegmentsNormalisesTheEntireRecording(t *testing.T) {
+	ffmpeg, ffprobe := ffmpegTools(t)
+	sessions, session := exportFixture(t, ffmpeg)
+	dir, _ := sessions.SessionDir(session.ID)
+	if _, err := sessions.Update(session.ID, "test.remove_segments", nil, func(s *store.Session) error {
+		s.Segments = nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	c.FFmpeg = ffmpeg
+	if err := New(c, sessions).Export(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "exports", "2026-08-30-St-Marys-Church.mp3")
+	if got := probeDuration(t, ffprobe, output); math.Abs(got-4) > .3 {
+		t.Fatalf("MP3 duration = %g s, want the entire 4 s recording", got)
+	}
+	if got := probeLoudnessLUFS(t, ffmpeg, output); math.Abs(got-c.Master.IntegratedLUFS) > 1.5 {
+		t.Fatalf("MP3 loudness = %g LUFS, want about %g LUFS", got, c.Master.IntegratedLUFS)
+	}
+}
+
 // The service's own gap overrides the configured one, and the ceiling is
 // applied after the loudness normalisation: an integrated target of -6 LUFS
 // puts a sine well above -12 dBFS unless the limiter pulls it back.

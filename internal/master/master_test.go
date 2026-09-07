@@ -81,6 +81,40 @@ func TestPrepareMakesRunningExportDurable(t *testing.T) {
 	}
 }
 
+func TestPrepareWithoutSegmentsUsesTheEntireRecording(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	if _, err := sessions.Update(session.ID, "test.remove_segments", nil, func(s *store.Session) error {
+		s.Segments = nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := mastering.Prepare(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.segments) != 1 {
+		t.Fatalf("export plan has %d segments, want one", len(job.segments))
+	}
+	segment := job.segments[0]
+	if segment.ID != "entire-recording" || segment.StartFrame != 0 || segment.EndFrame == nil || *segment.EndFrame != 48_000 {
+		t.Fatalf("whole-recording segment = %#v", segment)
+	}
+}
+
+func TestPrepareDoesNotOverrideDeliberatelyExcludedSegments(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	if _, err := sessions.Update(session.ID, "test.exclude_segment", nil, func(s *store.Session) error {
+		s.Segments[0].Include = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mastering.Prepare(session.ID); err == nil {
+		t.Fatal("an excluded segment was replaced by a whole-recording export")
+	}
+}
+
 func TestPrepareFailureDoesNotLeaveRunningExport(t *testing.T) {
 	mastering, sessions, session := preparationFixture(t)
 	dir, _ := sessions.SessionDir(session.ID)

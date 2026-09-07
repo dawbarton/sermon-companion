@@ -241,7 +241,11 @@ publication, the stored revision is checked again; a changed service cannot
 replace the current MP3. On shutdown the server cancels and waits for FFmpeg,
 then records the export failure for the next start-up.
 
-Included, complete segments are sorted chronologically. FFmpeg trims each one by
+If a service has never had any segments, mastering treats its complete recording
+as one synthetic segment and measures its loudness as a whole. This default does
+not override an operator deliberately excluding, removing, or leaving incomplete
+segments. Otherwise, included, complete segments are sorted chronologically.
+FFmpeg trims each one by
 its exact start and end sample and, by default, folds it to a single channel
 before it is processed with
 the FFmpeg `loudnorm` filter in two passes using the configured integrated
