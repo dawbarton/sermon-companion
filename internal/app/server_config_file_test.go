@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,9 +43,21 @@ func TestOpenConfigFileOpensTheFileInUse(t *testing.T) {
 	if opened != path {
 		t.Fatalf("opened %q, want %q", opened, path)
 	}
-	if !strings.Contains(response.Body.String(), path) {
-		t.Fatalf("response does not name the file the operator was sent to: %s", response.Body.String())
+	if decoded := decodeConfigResponse(t, response)["path"]; decoded != path {
+		t.Fatalf("response named %q, want %q", decoded, path)
 	}
+}
+
+// decodeConfigResponse reads the response as JSON rather than as text. A
+// Windows path arrives with its separators escaped, so searching the encoded
+// body for the path the operator was given fails there and nowhere else.
+func decodeConfigResponse(t *testing.T, response *httptest.ResponseRecorder) map[string]string {
+	t.Helper()
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode %s: %v", response.Body.String(), err)
+	}
+	return body
 }
 
 // An operator who cannot be shown the file has to be told where it is, so a
@@ -62,8 +75,8 @@ func TestOpenConfigFileReportsAMissingFile(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), path) {
-		t.Fatalf("error does not name the file: %s", response.Body.String())
+	if message := decodeConfigResponse(t, response)["error"]; !strings.Contains(message, path) {
+		t.Fatalf("error %q does not name the file %q", message, path)
 	}
 }
 
