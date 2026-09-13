@@ -138,6 +138,15 @@ func fakeSite(t *testing.T) *httptest.Server {
 			"wpfc_preacher": map[string]any{"name": "Preachers", "slug": "wpfc_preacher", "rest_base": "preachers", "types": []string{"wpfc_sermon"}},
 			"congregation":  map[string]any{"name": "Congregations", "slug": "congregation", "rest_base": "congregations", "types": []string{"wpfc_sermon"}},
 			"category":      map[string]any{"name": "Categories", "slug": "category", "rest_base": "categories", "types": []string{"post"}},
+			"bible_book":    map[string]any{"name": "Bible Books", "slug": "bible_book", "rest_base": "bible_books", "types": []string{"wpfc_sermon"}},
+		},
+		// The edit context names each taxonomy's capabilities and leaves out any
+		// the account may not assign, here the Bible books.
+		"/wp/v2/taxonomies?context=edit": map[string]any{
+			"wpfc_preacher": map[string]any{"slug": "wpfc_preacher", "hierarchical": false,
+				"capabilities": map[string]string{"assign_terms": "edit_posts", "edit_terms": "manage_categories"}},
+			"congregation": map[string]any{"slug": "congregation", "hierarchical": true,
+				"capabilities": map[string]string{"assign_terms": "edit_posts", "edit_terms": "manage_categories"}},
 		},
 		"/wp/v2/preachers":     []any{map[string]any{"id": 7, "name": "David Barton", "slug": "david-barton", "count": 3}},
 		"/wp/v2/congregations": []any{map[string]any{"id": 11, "name": "Emmanuel Bishopston", "slug": "emmanuel-bishopston", "count": 40}},
@@ -169,10 +178,14 @@ func fakeSite(t *testing.T) *httptest.Server {
 			}})
 			return
 		}
-		if route == "/wp/v2/users/me" && r.Header.Get("Authorization") == "" {
+		edit := route == "/wp/v2/taxonomies" && r.URL.Query().Get("context") == "edit"
+		if (route == "/wp/v2/users/me" || edit) && r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"code":"rest_not_logged_in"}`))
 			return
+		}
+		if edit {
+			route += "?context=edit"
 		}
 		body, ok := routes[route]
 		if !ok {
@@ -234,6 +247,56 @@ func TestRunReportsTheTalkTypeItsTaxonomyAndTheAccount(t *testing.T) {
 				t.Errorf("%s holds the account's email address", path)
 			}
 		}
+	}
+}
+
+func TestAuthenticatedRunReportsWhichTermsTheAccountMayCreate(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, User: "david", Pass: "secret", OutDir: t.TempDir(), HTTP: server.Client()}
+	summary := probe.Run()
+
+	for _, want := range []string{
+		// A flat taxonomy: assigning is enough to create, as for a new speaker.
+		"| `wpfc_preacher` | no | yes (`edit_posts`) | yes (`assign_terms`: `edit_posts`) |",
+		// A hierarchical one needs edit_terms, which this account lacks.
+		"| `congregation` | yes | yes (`edit_posts`) | no (`edit_terms`: `manage_categories`) |",
+		// Left out of the edit listing, so the account may not even assign it.
+		"| `bible_book` | ? | no | no |",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary does not contain %q\n---\n%s", want, summary)
+		}
+	}
+}
+
+func TestAnonymousRunDoesNotReportTermRights(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client()}
+	if strings.Contains(probe.Run(), "Terms this account may assign and create") {
+		t.Error("term rights belong to an account and should not be reported without one")
+	}
+}
+
+func TestEmailAddressGivenAsUserStaysOutOfTheSummary(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, User: "uploads@example.org", Pass: "secret", OutDir: t.TempDir(), HTTP: server.Client()}
+	if summary := probe.Run(); strings.Contains(summary, "uploads@example.org") {
+		t.Errorf("an email address given as the user must not reach the summary\n---\n%s", summary)
 	}
 }
 

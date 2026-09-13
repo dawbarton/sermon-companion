@@ -211,7 +211,12 @@ func (p *Probe) Run() string {
 	p.line("")
 	p.line("- Site: `%s`", p.Base.String())
 	p.line("- Probed: %s", time.Now().Format(time.RFC3339))
-	if p.authenticated() {
+	if p.authenticated() && strings.Contains(p.User, "@") {
+		// WordPress accepts an account's email address in place of its login, and
+		// an address has no business in a summary that may be pasted into a
+		// design discussion.
+		p.line("- Credentials: supplied for an account named by its email address, not repeated here")
+	} else if p.authenticated() {
 		p.line("- Credentials: supplied for user `%s`", p.User)
 	} else {
 		p.line("- Credentials: none; only publicly readable routes were seen")
@@ -243,7 +248,7 @@ func (p *Probe) Run() string {
 	p.describeSuppliedURL(types, taxa)
 	p.describeCandidates(types)
 	p.describeMedia()
-	p.describeAuth()
+	p.describeAuth(types, taxa)
 	p.describeGenerator()
 	p.appendSteps()
 	return p.summary.String()
@@ -610,7 +615,7 @@ func (p *Probe) describeMedia() {
 	p.line("")
 }
 
-func (p *Probe) describeAuth() {
+func (p *Probe) describeAuth(types map[string]postType, taxa map[string]taxonomy) {
 	p.line("## Authentication")
 	p.line("")
 	if !p.authenticated() {
@@ -665,6 +670,82 @@ func (p *Probe) describeAuth() {
 	p.line("The account's email address is deliberately not saved; only the fields above are")
 	p.line("in `30-me-redacted.json`.")
 	p.line("")
+	p.describeTermRights(types, taxa, me.Capabilities)
+}
+
+// editTaxonomy is a taxonomy as the edit context reports it, which is the only
+// context that names the capabilities WordPress checks for its terms.
+type editTaxonomy struct {
+	Hierarchical bool              `json:"hierarchical"`
+	Capabilities map[string]string `json:"capabilities"`
+}
+
+// describeTermRights reports whether the account may assign and create terms in
+// each taxonomy a talk would use. A visiting speaker or a new series has to be
+// created from the app, and whether that works turns on the capabilities each
+// taxonomy was registered with rather than on the name of the account's role.
+func (p *Probe) describeTermRights(types map[string]postType, taxa map[string]taxonomy, held map[string]bool) {
+	p.line("### Terms this account may assign and create")
+	p.line("")
+	body, status, err := p.request("taxonomies (edit context)", http.MethodGet,
+		p.restURL("/wp/v2/taxonomies", url.Values{"context": {"edit"}}), "31-taxonomies-edit.json")
+	if err != nil || status != http.StatusOK {
+		// WordPress refuses the whole listing when the account may assign terms
+		// in no taxonomy at all, so a refusal here is itself an answer.
+		p.line("The edit-context taxonomy listing returned status %d, which WordPress does", status)
+		p.line("when the account may assign terms in no taxonomy at all.")
+		p.line("")
+		return
+	}
+	listed, ok := decode[map[string]editTaxonomy](body)
+	if !ok {
+		p.line("The edit-context taxonomy listing could not be read.")
+		p.line("")
+		return
+	}
+	slugs := make([]string, 0, len(taxa))
+	for slug, t := range taxa {
+		if t.RestBase != "" && p.taxonomyTouchesCandidate(t, types) {
+			slugs = append(slugs, slug)
+		}
+	}
+	sort.Strings(slugs)
+
+	p.line("WordPress lists a taxonomy in the edit context only when the account holds its")
+	p.line("`assign_terms` capability. Over REST it lets a term be created with `assign_terms`")
+	p.line("in a flat, tag-like taxonomy, and with `edit_terms` in a hierarchical one.")
+	p.line("")
+	p.line("| Taxonomy | Hierarchical | Assign terms | Create terms |")
+	p.line("| --- | --- | --- | --- |")
+	hierarchical := false
+	for _, slug := range slugs {
+		t, ok := listed[slug]
+		if !ok {
+			p.line("| `%s` | ? | no | no |", slug)
+			continue
+		}
+		assign := t.Capabilities["assign_terms"]
+		if !t.Hierarchical {
+			p.line("| `%s` | no | yes (`%s`) | yes (`assign_terms`: `%s`) |", slug, assign, assign)
+			continue
+		}
+		hierarchical = true
+		edit := t.Capabilities["edit_terms"]
+		p.line("| `%s` | yes | yes (`%s`) | %s (`edit_terms`: `%s`) |", slug, assign, yesNo(held[edit]), edit)
+	}
+	p.line("")
+	if hierarchical {
+		p.line("For a hierarchical taxonomy, creating a term is read from the account's listed")
+		p.line("capabilities, which leave out any that a plugin grants only when asked.")
+		p.line("")
+	}
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 var generatorPattern = regexp.MustCompile(`(?i)<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']`)
