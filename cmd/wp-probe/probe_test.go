@@ -1,0 +1,224 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestParseSiteAssumesHTTPSAndTrimsTrailingParts(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want string
+	}{
+		{"example.org", "https://example.org"},
+		{"https://example.org/", "https://example.org"},
+		{"http://example.org/church/", "http://example.org/church"},
+		{"https://example.org/?a=b#c", "https://example.org"},
+	} {
+		parsed, err := parseSite(test.raw)
+		if err != nil {
+			t.Fatalf("parseSite(%q): %v", test.raw, err)
+		}
+		if parsed.String() != test.want {
+			t.Errorf("parseSite(%q) = %q, want %q", test.raw, parsed.String(), test.want)
+		}
+	}
+	for _, raw := range []string{"", "   ", "ftp://example.org"} {
+		if _, err := parseSite(raw); err == nil {
+			t.Errorf("parseSite(%q) accepted an address it should have refused", raw)
+		}
+	}
+}
+
+func TestRESTURLCoversBothPermalinkForms(t *testing.T) {
+	base, err := parseSite("https://example.org/church")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, pretty: true}
+	got := probe.restURL("/wp/v2/media", url.Values{"per_page": {"1"}})
+	if got != "https://example.org/church/wp-json/wp/v2/media?per_page=1" {
+		t.Errorf("pretty form = %q", got)
+	}
+	probe.pretty = false
+	got = probe.restURL("/wp/v2/media", url.Values{"per_page": {"1"}})
+	if got != "https://example.org/church/?per_page=1&rest_route=%2Fwp%2Fv2%2Fmedia" {
+		t.Errorf("plain form = %q", got)
+	}
+}
+
+func TestLooksLikeSermonMatchesPluginNamesNotOrdinaryContent(t *testing.T) {
+	for _, name := range []string{"wpfc_sermon", "Sermon Series", "sermon-manager/v1", "Preacher", "podcast"} {
+		if !looksLikeSermon(name) {
+			t.Errorf("looksLikeSermon(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"page", "category", "wp/v2", "Events"} {
+		if looksLikeSermon(name) {
+			t.Errorf("looksLikeSermon(%q) = true, want false", name)
+		}
+	}
+}
+
+func TestIsCandidateKeepsUnfamiliarTypesAndSkipsUnexposedOnes(t *testing.T) {
+	if !isCandidate("resource", postType{RestBase: "resource", Name: "Resource"}) {
+		t.Error("an unfamiliar custom type should still be a candidate; sermons need not be called sermons")
+	}
+	if isCandidate("wpfc_sermon", postType{Name: "Sermons"}) {
+		t.Error("a type with no REST base cannot be written to and is not a candidate")
+	}
+	if isCandidate("page", postType{RestBase: "pages", Name: "Pages"}) {
+		t.Error("builtin pages should not be reported as a candidate talk type")
+	}
+}
+
+func TestDescribeArgsNamesTheFieldsOfThePOSTEndpoint(t *testing.T) {
+	body := []byte(`{"endpoints":[
+		{"methods":["GET"],"args":{"per_page":{}}},
+		{"methods":["POST"],"args":{"title":{},"date":{},"wpfc_preacher":{}}}]}`)
+	got := describeArgs(body)
+	for _, want := range []string{"title", "date", "wpfc_preacher"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("describeArgs() = %q, missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "per_page") {
+		t.Errorf("describeArgs() = %q, should describe the POST endpoint, not the listing", got)
+	}
+	if !strings.Contains(describeArgs([]byte(`{"endpoints":[{"methods":["GET"],"args":{}}]}`)), "no POST route") {
+		t.Error("a type the credentials cannot create should be reported as such")
+	}
+}
+
+// fakeSite is the smallest WordPress-shaped site that exercises the whole walk:
+// an index, a custom talk type with a taxonomy, media, and an authenticated
+// account.
+func fakeSite(t *testing.T) *httptest.Server {
+	t.Helper()
+	routes := map[string]any{
+		"/": map[string]any{
+			"name":            "St Mary's",
+			"description":     "A parish church",
+			"namespaces":      []string{"wp/v2", "sermon-manager/v1"},
+			"authentication":  map[string]any{"application-passwords": map[string]any{}},
+			"timezone_string": "Europe/London",
+			"routes":          map[string]any{"/wp/v2/posts": map[string]any{}, "/sermon-manager/v1/series": map[string]any{}},
+		},
+		"/wp/v2/types": map[string]any{
+			"post":        map[string]any{"name": "Posts", "slug": "post", "rest_base": "posts", "taxonomies": []string{"category"}},
+			"page":        map[string]any{"name": "Pages", "slug": "page", "rest_base": "pages"},
+			"wpfc_sermon": map[string]any{"name": "Sermons", "slug": "wpfc_sermon", "rest_base": "sermons", "taxonomies": []string{"wpfc_preacher"}},
+		},
+		"/wp/v2/taxonomies": map[string]any{
+			"wpfc_preacher": map[string]any{"name": "Preachers", "slug": "wpfc_preacher", "rest_base": "preachers", "types": []string{"wpfc_sermon"}},
+			"category":      map[string]any{"name": "Categories", "slug": "category", "rest_base": "categories", "types": []string{"post"}},
+		},
+		"/wp/v2/preachers": []any{map[string]any{"id": 7, "name": "David Barton", "slug": "david-barton", "count": 3}},
+		"/wp/v2/sermons": []any{map[string]any{
+			"id": 42, "date": "2026-09-06T10:30:00", "title": map[string]any{"rendered": "The Prodigal Son"},
+			"meta": map[string]any{"sermon_date": "1757116800", "bible_passage": "Luke 15"},
+		}},
+		"/wp/v2/posts": []any{},
+		"/wp/v2/media": []any{map[string]any{"id": 9, "source_url": "https://example.org/2026/08/service.mp3", "mime_type": "audio/mpeg"}},
+		"/wp/v2/users/me": map[string]any{
+			"id": 2, "name": "David", "slug": "david", "roles": []string{"editor"},
+			"email":        "private@example.org",
+			"capabilities": map[string]bool{"upload_files": true, "edit_posts": true, "publish_posts": false},
+		},
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		route := strings.TrimPrefix(r.URL.Path, "/wp-json")
+		if route == "" {
+			route = "/"
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"endpoints": []any{
+				map[string]any{"methods": []string{"POST"}, "args": map[string]any{"title": map[string]any{}, "wpfc_preacher": map[string]any{}}},
+			}})
+			return
+		}
+		if route == "/wp/v2/users/me" && r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"code":"rest_not_logged_in"}`))
+			return
+		}
+		body, ok := routes[route]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"code":"rest_no_route"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(body)
+	}))
+}
+
+func TestRunReportsTheTalkTypeItsTaxonomyAndTheAccount(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	probe := &Probe{Base: base, User: "david", Pass: "secret", OutDir: dir, HTTP: server.Client()}
+	summary := probe.Run()
+
+	for _, want := range []string{
+		"wpfc_sermon",            // the talk type was found
+		"wpfc_preacher",          // and the taxonomy a speaker would come from
+		"david-barton",           // whose terms were listed
+		"The Prodigal Son",       // the previous talk defaults would be copied from
+		"bible_passage",          // including its custom meta fields
+		"sermon-manager/v1",      // a plugin namespace worth reading
+		"`upload_files`: true",   // the account can attach an MP3
+		"`publish_posts`: false", // but cannot publish, which changes the design
+		"Europe/London",          // dates without a zone are read in this one
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary does not mention %q\n---\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "private@example.org") {
+		t.Error("the account's email address must not reach the summary")
+	}
+	saved, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) < 4 {
+		t.Errorf("expected the raw responses to be saved for later reading, got %v", saved)
+	}
+	for _, path := range saved {
+		if strings.Contains(filepath.Base(path), "me") {
+			content, err := readFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(content, "private@example.org") {
+				t.Errorf("%s holds the account's email address", path)
+			}
+		}
+	}
+}
+
+func TestRunSaysSoWhenThereIsNoRESTAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client()}
+	if !strings.Contains(probe.Run(), "No REST API was found") {
+		t.Error("a site without a REST API should be reported plainly rather than as an empty result")
+	}
+}

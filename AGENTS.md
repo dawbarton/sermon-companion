@@ -143,6 +143,10 @@ from the log page, and from `--version` when its output is redirected.
 - `internal/master`: segment extraction, two-pass normalisation measured per
   label so that one talk cut into pieces keeps a single volume, concatenation,
   MP3 publication, and export history.
+- `cmd/wp-probe`: read-only reconnaissance of a WordPress site's REST API,
+  used while designing automatic sermon upload. It is a design instrument rather
+  than part of the application, and it never writes to a site. See
+  `docs/SERMON-UPLOAD-DESIGN.md` for the design it serves and its open questions.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
 - `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows

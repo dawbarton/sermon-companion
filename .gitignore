@@ -3,6 +3,7 @@
 /outputs/
 /SermonCompanion
 /sermon-companion
+/wp-probe
 *.exe
 *.test
 *.out
