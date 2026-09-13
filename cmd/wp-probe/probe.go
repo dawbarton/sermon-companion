@@ -34,6 +34,18 @@ type Probe struct {
 	pretty  bool
 	steps   []step
 	summary strings.Builder
+
+	// TalkURL is an optional page on the site that the operator knows to be a
+	// talk. Resolving it is far more direct than guessing which custom post
+	// type holds talks, and any filter parameters on it name real taxonomy
+	// terms, which is how a facet's opaque parameter is traced back to the
+	// taxonomy the app would have to set.
+	TalkURL *url.URL
+
+	// indexHidden records that the REST index itself was refused while the
+	// individual routes answered. Several security plugins do exactly this,
+	// and treating it as "no REST API" would abandon a perfectly usable site.
+	indexHidden bool
 }
 
 type step struct {
@@ -44,6 +56,7 @@ type step struct {
 	File   string
 	Note   string
 	Err    string
+	Body   string // the first part of a refusal, which says who refused
 }
 
 // sermonWords are the substrings that suggest a post type or taxonomy carries
@@ -110,6 +123,12 @@ func (p *Probe) request(name, method, address, file string) ([]byte, int, error)
 		return nil, resp.StatusCode, err
 	}
 	record := step{Name: name, Method: method, URL: address, Status: resp.StatusCode}
+	if resp.StatusCode >= 400 {
+		// A WordPress refusal names itself (`rest_no_route`, `rest_forbidden`);
+		// a web application firewall or a host block looks nothing like one.
+		// Keeping the first part of the body is what tells the two apart.
+		record.Body = compact(string(body))
+	}
 	if file != "" && len(body) > 0 {
 		if saved, err := p.save(file, body); err == nil {
 			record.File = saved
@@ -202,15 +221,26 @@ func (p *Probe) Run() string {
 	index, ok := p.findREST()
 	if !ok {
 		p.line("**No REST API was found.** Neither `/wp-json/` nor `?rest_route=/` returned")
-		p.line("a REST index. The site may not be WordPress, the REST API may be blocked by")
-		p.line("a security plugin or the host, or the address may need a different path.")
+		p.line("a REST index, and `/wp/v2/types` was refused as well. The site may not be")
+		p.line("WordPress, the REST API may be blocked by a security plugin, a firewall, or the")
+		p.line("host, or the address may need a different path. The refusals below say which:")
+		p.line("a WordPress refusal names itself, whereas a firewall's does not.")
+		p.line("")
+		for _, s := range p.steps {
+			if s.Body != "" {
+				p.line("- `%s` returned %d: %s", s.URL, s.Status, s.Body)
+			} else if s.Err != "" {
+				p.line("- `%s` failed: %s", s.URL, s.Err)
+			}
+		}
 		p.appendSteps()
 		return p.summary.String()
 	}
 
 	p.describeSite(index)
 	types := p.describeTypes()
-	p.describeTaxonomies(types)
+	taxa := p.describeTaxonomies(types)
+	p.describeSuppliedURL(types, taxa)
 	p.describeCandidates(types)
 	p.describeMedia()
 	p.describeAuth()
@@ -219,7 +249,8 @@ func (p *Probe) Run() string {
 	return p.summary.String()
 }
 
-// findREST locates the REST index in whichever permalink form the site uses.
+// findREST locates the REST index in whichever permalink form the site uses,
+// and falls back to a single known route when the index alone is refused.
 func (p *Probe) findREST() (restIndex, bool) {
 	for _, pretty := range []bool{true, false} {
 		p.pretty = pretty
@@ -237,12 +268,32 @@ func (p *Probe) findREST() (restIndex, bool) {
 			return index, true
 		}
 	}
+	// Hiding the index while leaving the routes open is a common hardening
+	// measure and is not the same thing as having no REST API.
+	for _, pretty := range []bool{true, false} {
+		p.pretty = pretty
+		body, status, err := p.request("post types (index refused)", http.MethodGet, p.restURL("/wp/v2/types", nil), "01-types-fallback.json")
+		if err != nil || status != http.StatusOK {
+			continue
+		}
+		if types, ok := decode[map[string]postType](body); ok && len(types) > 0 {
+			p.indexHidden = true
+			return restIndex{}, true
+		}
+	}
 	return restIndex{}, false
 }
 
 func (p *Probe) describeSite(index restIndex) {
 	p.line("## Site")
 	p.line("")
+	if p.indexHidden {
+		p.line("The REST index was refused, but `/wp/v2/types` answered, so the API is present")
+		p.line("and something is hiding the index alone. Namespaces and the plugin routes they")
+		p.line("would have named are therefore unknown; everything below still applies.")
+		p.line("")
+		return
+	}
 	p.line("- Name: %s", strings.TrimSpace(index.Name))
 	if strings.TrimSpace(index.Description) != "" {
 		p.line("- Description: %s", strings.TrimSpace(index.Description))
@@ -646,6 +697,8 @@ func (p *Probe) appendSteps() {
 		status := fmt.Sprintf("%d", s.Status)
 		if s.Err != "" {
 			status = "error: " + s.Err
+		} else if s.Body != "" {
+			status = fmt.Sprintf("%d — %s", s.Status, s.Body)
 		}
 		file := filepath.Base(s.File)
 		if s.File == "" {
@@ -679,4 +732,173 @@ func compactLong(s string) string {
 		return s[:4000] + "\n... truncated; see the saved file"
 	}
 	return s
+}
+
+// describeSuppliedURL works backwards from a page the operator already knows
+// about. Two things are wanted from it. The first is the REST object behind a
+// talk's permalink, which settles what post type talks are in and what fields
+// one actually carries, without guessing from names. The second is the meaning
+// of any filter parameters on the address: a facet plugin puts an opaque
+// parameter such as `_resource_bible_book_2_2` in the query string, and its
+// value is a taxonomy term slug, so looking the slug up across the taxonomies
+// names the taxonomy the app would have to set.
+func (p *Probe) describeSuppliedURL(types map[string]postType, taxa map[string]taxonomy) {
+	if p.TalkURL == nil {
+		return
+	}
+	p.line("## The supplied page")
+	p.line("")
+	p.line("- Address: `%s`", p.TalkURL.String())
+	p.line("")
+
+	p.resolveFilterParameters(taxa)
+	p.resolvePermalink(types)
+}
+
+// resolveFilterParameters looks up each filter value as a term slug in every
+// taxonomy, so an opaque facet parameter is traced to the taxonomy behind it.
+func (p *Probe) resolveFilterParameters(taxa map[string]taxonomy) {
+	query := p.TalkURL.Query()
+	if len(query) == 0 {
+		return
+	}
+	names := make([]string, 0, len(query))
+	for name := range query {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	p.line("### Filter parameters")
+	p.line("")
+	p.line("A facet plugin names its parameters after the facet rather than the taxonomy, so")
+	p.line("the parameter name proves nothing. Each value is looked up as a term slug in")
+	p.line("every taxonomy below; the taxonomy it is found in is the one the app must set.")
+	p.line("")
+	for _, name := range names {
+		for _, value := range query[name] {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			p.line("- `%s` = `%s`", name, value)
+			found := false
+			for slug, t := range taxa {
+				if t.RestBase == "" {
+					continue
+				}
+				body, status, err := p.request("term lookup: "+slug+"/"+value, http.MethodGet,
+					p.restURL("/wp/v2/"+t.RestBase, url.Values{"slug": {value}}), "")
+				if err != nil || status != http.StatusOK {
+					continue
+				}
+				terms, ok := decode[[]struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+					Slug string `json:"slug"`
+				}](body)
+				if !ok || len(terms) == 0 {
+					continue
+				}
+				found = true
+				p.line("  - found in taxonomy `%s` as term %d, %q", slug, terms[0].ID, terms[0].Name)
+			}
+			if !found {
+				p.line("  - not a term in any taxonomy readable here. It may be a custom field, a")
+				p.line("    search string, or a taxonomy this account cannot see.")
+			}
+		}
+	}
+	p.line("")
+}
+
+// resolvePermalink finds the REST object behind the supplied address.
+func (p *Probe) resolvePermalink(types map[string]postType) {
+	slug := ""
+	for _, part := range strings.Split(strings.Trim(p.TalkURL.Path, "/"), "/") {
+		if part != "" {
+			slug = part
+		}
+	}
+	if slug == "" {
+		return
+	}
+	p.line("### The page itself")
+	p.line("")
+	p.line("Last path segment, used as the slug: `%s`", slug)
+	p.line("")
+
+	// The core search route reports the post type of anything searchable, which
+	// is the quickest way to learn where a talk lives.
+	query := url.Values{"search": {slug}, "per_page": {"5"}}
+	if body, status, err := p.request("search for the slug", http.MethodGet, p.restURL("/wp/v2/search", query), "14-search.json"); err == nil && status == http.StatusOK {
+		results, ok := decode[[]struct {
+			ID      int    `json:"id"`
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Type    string `json:"type"`
+			Subtype string `json:"subtype"`
+		}](body)
+		if ok && len(results) > 0 {
+			p.line("The search route matched:")
+			p.line("")
+			for _, result := range results {
+				marker := ""
+				if sameAddress(result.URL, p.TalkURL) {
+					marker = "  <- this is the supplied page"
+				}
+				p.line("- %d `%s` (%s/%s): %s%s", result.ID, result.Subtype, result.Type, result.Subtype, result.Title, marker)
+			}
+			p.line("")
+		}
+	}
+
+	// Whether or not search answered, ask each candidate type for the slug
+	// directly: search can be narrowed or switched off, and a direct hit also
+	// brings back the full object with its fields.
+	for typeSlug, t := range types {
+		if !isCandidate(typeSlug, t) && typeSlug != "post" && typeSlug != "page" {
+			continue
+		}
+		body, status, err := p.request("slug in "+typeSlug, http.MethodGet,
+			p.restURL("/wp/v2/"+t.RestBase, url.Values{"slug": {slug}, "_embed": {"1"}}), "")
+		if err != nil || status != http.StatusOK {
+			continue
+		}
+		entries, ok := decode[[]map[string]json.RawMessage](body)
+		if !ok || len(entries) == 0 {
+			continue
+		}
+		if _, err := p.save("15-page-"+safeName(typeSlug)+".json", body); err != nil {
+			p.line("(Could not save the matched object: %v)", err)
+		}
+		keys := make([]string, 0, len(entries[0]))
+		for key := range entries[0] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		p.line("Found in post type `%s`. Its fields: `%s`", typeSlug, strings.Join(keys, "`, `"))
+		p.line("")
+		p.line("Saved in full as `15-page-%s.json`. This is the object an upload would have to", safeName(typeSlug))
+		p.line("produce, so it is the field list the app has to be able to fill in.")
+		p.line("")
+		return
+	}
+	p.line("No post type readable here has that slug. If the address is an archive or a")
+	p.line("filtered listing rather than one talk, supply the address of a single talk")
+	p.line("instead: that is the object the upload has to create.")
+	p.line("")
+}
+
+// sameAddress compares two addresses ignoring scheme, a leading www, a trailing
+// slash, and any query, so that a permalink reported by the site matches the one
+// the operator pasted.
+func sameAddress(reported string, supplied *url.URL) bool {
+	parsed, err := url.Parse(reported)
+	if err != nil {
+		return false
+	}
+	normalise := func(u *url.URL) string {
+		host := strings.TrimPrefix(strings.ToLower(u.Host), "www.")
+		return host + "/" + strings.Trim(u.Path, "/")
+	}
+	return normalise(parsed) == normalise(supplied)
 }

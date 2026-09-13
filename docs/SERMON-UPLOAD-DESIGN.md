@@ -214,17 +214,73 @@ recording and review remain entirely local, and the only thing ever sent is a
 finished MP3 and its details, to a site the operator has configured, when the
 operator asks for it.
 
+## What the site address already suggests
+
+The sermon listing supplied is:
+
+```text
+https://www.emmanuelbristol.org.uk/emmanuel-sermons/?_resource_bible_book_2_2=emmanuel-bishopston
+```
+
+Nothing below has been checked against the site. Outbound access from the
+machine this note was written on is restricted to an allowlist that does not
+include it, so the probe could not be run and these are readings of the address
+alone. Treat them as things to confirm, not as findings.
+
+- **The filtering is probably FacetWP.** A query parameter of the form
+  `_facetname=value` is that plugin's convention, as recalled rather than
+  verified here. If so, the facets are configured in the WordPress admin and
+  are a presentation layer over ordinary taxonomies; the upload would set the
+  taxonomy, not the facet.
+- **Talks are probably not in a post type called "sermon".** The facet is named
+  `resource_bible_book_2_2`, and facet names in that plugin are conventionally
+  prefixed with the post type they filter. A custom type called `resource`,
+  holding sermons alongside other material, would fit. This is why the probe
+  reports every non-builtin post type rather than only the ones whose names
+  contain "sermon".
+- **The parameter name is not a guide to the taxonomy behind it.** It is called
+  `bible_book`, yet its value is `emmanuel-bishopston`, which is a congregation.
+  The `_2_2` suffix suggests a facet cloned from another and re-pointed. The
+  probe therefore looks each filter value up as a term slug across every
+  taxonomy and reports which one actually contains it.
+- **One site, several congregations.** If Emmanuel Bishopston is one
+  congregation of Emmanuel Bristol, then the "church" this app records is a
+  taxonomy term on a single site rather than a separate site. The per-church
+  target map still works, and several church names may point at the same site
+  while pinning different congregation terms, but the common case is simpler
+  than the map implies.
+- **`/emmanuel-sermons/` is a listing, not a talk.** The address of one
+  individual sermon is worth more than the archive, because it resolves to the
+  REST object an upload would have to create.
+
+## Running the probe
+
+```sh
+go run ./cmd/wp-probe \
+  -site https://www.emmanuelbristol.org.uk \
+  -url  'https://www.emmanuelbristol.org.uk/emmanuel-sermons/<one-sermon>/?_resource_bible_book_2_2=emmanuel-bishopston' \
+  -out  work/wp-probe
+```
+
+Credentials are optional and most of the above is publicly readable without
+them. To see what an account may write, add `-user` and supply the application
+password through `WP_APP_PASSWORD` or `-password-file`, so that it stays out of
+the shell history and the process list. The command makes only `GET` and
+`OPTIONS` requests, writes `work/wp-probe/SUMMARY.md` and the raw responses
+beside it, and keeps the account's email address out of both.
+
 ## Open questions
 
 These change the design rather than the wording, and the first two block step 2.
 
-1. **Which site, and what is a sermon on it?** One URL is enough to answer most
-   of this, without credentials. Is it a sermon plugin with its own post type and
-   taxonomies, or ordinary posts in a category with the MP3 linked by hand?
-2. **One church or several, and one site or several?** The `church` field being
-   per-session, and the request for defaults from the last talk "for the same
-   church", suggests more than one. If several churches share one site, is there
-   a church taxonomy, or does the site distinguish them another way?
+1. **What is a sermon on this site?** The probe answers this from the site
+   itself. Pending that: which post type, which taxonomies carry the speaker,
+   the series, and the congregation, and is the MP3 an attachment on the talk or
+   a URL in a custom field?
+2. **Is Emmanuel Bristol the only site?** If every service recorded goes to this
+   one site and the congregation varies, the design is a single target with a
+   congregation field. If there are genuinely other churches with other sites,
+   the per-church target map earns its keep.
 3. **Whole service or sermon only?** The export today is one MP3 of everything
    marked. If the website should carry only the sermon, the mastering path needs
    a second, sermon-only output, which is a bigger change than the upload itself.
@@ -237,3 +293,6 @@ These change the design rather than the wording, and the first two block step 2.
 6. **What is the site's maximum upload size?** Visible in the WordPress admin at
    Media then Add New, stated as "Maximum upload file size". If it is below about
    60 MB, question 3 becomes more pressing.
+7. **Does the site expect the audio as an attachment or as a link?** Some sermon
+   plugins store a URL in a custom field and never touch the media library, in
+   which case an upload has to do both, and in that order.

@@ -95,6 +95,26 @@ func TestDescribeArgsNamesTheFieldsOfThePOSTEndpoint(t *testing.T) {
 	}
 }
 
+// filterBySlug mimics the `slug` query parameter of a WordPress collection
+// route, which is what resolving a permalink relies on.
+func filterBySlug(body any, slug string) any {
+	entries, ok := body.([]any)
+	if !ok {
+		return body
+	}
+	kept := []any{}
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fields["slug"] == slug {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // fakeSite is the smallest WordPress-shaped site that exercises the whole walk:
 // an index, a custom talk type with a taxonomy, media, and an authenticated
 // account.
@@ -112,15 +132,21 @@ func fakeSite(t *testing.T) *httptest.Server {
 		"/wp/v2/types": map[string]any{
 			"post":        map[string]any{"name": "Posts", "slug": "post", "rest_base": "posts", "taxonomies": []string{"category"}},
 			"page":        map[string]any{"name": "Pages", "slug": "page", "rest_base": "pages"},
-			"wpfc_sermon": map[string]any{"name": "Sermons", "slug": "wpfc_sermon", "rest_base": "sermons", "taxonomies": []string{"wpfc_preacher"}},
+			"wpfc_sermon": map[string]any{"name": "Sermons", "slug": "wpfc_sermon", "rest_base": "sermons", "taxonomies": []string{"wpfc_preacher", "congregation"}},
 		},
 		"/wp/v2/taxonomies": map[string]any{
 			"wpfc_preacher": map[string]any{"name": "Preachers", "slug": "wpfc_preacher", "rest_base": "preachers", "types": []string{"wpfc_sermon"}},
+			"congregation":  map[string]any{"name": "Congregations", "slug": "congregation", "rest_base": "congregations", "types": []string{"wpfc_sermon"}},
 			"category":      map[string]any{"name": "Categories", "slug": "category", "rest_base": "categories", "types": []string{"post"}},
 		},
-		"/wp/v2/preachers": []any{map[string]any{"id": 7, "name": "David Barton", "slug": "david-barton", "count": 3}},
+		"/wp/v2/preachers":     []any{map[string]any{"id": 7, "name": "David Barton", "slug": "david-barton", "count": 3}},
+		"/wp/v2/congregations": []any{map[string]any{"id": 11, "name": "Emmanuel Bishopston", "slug": "emmanuel-bishopston", "count": 40}},
+		"/wp/v2/search": []any{map[string]any{
+			"id": 42, "title": "The Prodigal Son", "type": "post", "subtype": "wpfc_sermon",
+			"url": "https://example.org/sermons/the-prodigal-son/",
+		}},
 		"/wp/v2/sermons": []any{map[string]any{
-			"id": 42, "date": "2026-09-06T10:30:00", "title": map[string]any{"rendered": "The Prodigal Son"},
+			"id": 42, "slug": "the-prodigal-son", "date": "2026-09-06T10:30:00", "title": map[string]any{"rendered": "The Prodigal Son"},
 			"meta": map[string]any{"sermon_date": "1757116800", "bible_passage": "Luke 15"},
 		}},
 		"/wp/v2/posts": []any{},
@@ -153,6 +179,9 @@ func fakeSite(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(`{"code":"rest_no_route"}`))
 			return
+		}
+		if slug := r.URL.Query().Get("slug"); slug != "" {
+			body = filterBySlug(body, slug)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(body)
@@ -220,5 +249,106 @@ func TestRunSaysSoWhenThereIsNoRESTAPI(t *testing.T) {
 	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client()}
 	if !strings.Contains(probe.Run(), "No REST API was found") {
 		t.Error("a site without a REST API should be reported plainly rather than as an empty result")
+	}
+}
+
+func TestSuppliedURLNamesThePostTypeAndTheTaxonomyBehindAFacet(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A facet parameter named after a Bible book but carrying a congregation
+	// slug is exactly the case the lookup exists for: the parameter's name is
+	// no guide at all to the taxonomy behind it.
+	talk, err := url.Parse(server.URL + "/sermons/the-prodigal-son/?_resource_bible_book_2_2=emmanuel-bishopston")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client(), TalkURL: talk}
+	summary := probe.Run()
+
+	for _, want := range []string{
+		"found in taxonomy `congregation` as term 11",
+		"Found in post type `wpfc_sermon`",
+		"15-page-wpfc_sermon.json",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary does not mention %q\n---\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "found in taxonomy `wpfc_preacher`") {
+		t.Error("the slug was reported against a taxonomy that does not hold it")
+	}
+}
+
+func TestSuppliedArchiveURLSaysItIsNotOneTalk(t *testing.T) {
+	server := fakeSite(t)
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	talk, err := url.Parse(server.URL + "/emmanuel-sermons/?_resource_bible_book_2_2=emmanuel-bishopston")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client(), TalkURL: talk}
+	summary := probe.Run()
+
+	if !strings.Contains(summary, "supply the address of a single talk") {
+		t.Errorf("a filtered listing should be reported as not being one talk\n---\n%s", summary)
+	}
+	// The facet is still worth tracing even when the page is an archive: that
+	// is where the church term is learnt from.
+	if !strings.Contains(summary, "found in taxonomy `congregation` as term 11") {
+		t.Errorf("the filter value should still be traced on an archive page\n---\n%s", summary)
+	}
+}
+
+func TestHiddenRESTIndexIsNotMistakenForNoRESTAPI(t *testing.T) {
+	inner := fakeSite(t)
+	defer inner.Close()
+	// Several security plugins refuse the index while leaving the routes open.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimPrefix(r.URL.Path, "/wp-json") == "" || r.URL.Query().Get("rest_route") == "/" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"code":"rest_disabled"}`))
+			return
+		}
+		http.Redirect(w, r, inner.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client()}
+	summary := probe.Run()
+
+	if strings.Contains(summary, "No REST API was found") {
+		t.Errorf("a hidden index should not be reported as a missing REST API\n---\n%s", summary)
+	}
+	if !strings.Contains(summary, "wpfc_sermon") {
+		t.Errorf("the talk type should still be found through the fallback\n---\n%s", summary)
+	}
+}
+
+func TestRefusalBodyIsReportedSoTheRefuserCanBeIdentified(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`<html><body>Blocked by Wordfence</body></html>`))
+	}))
+	defer server.Close()
+	base, err := parseSite(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &Probe{Base: base, OutDir: t.TempDir(), HTTP: server.Client()}
+	summary := probe.Run()
+
+	if !strings.Contains(summary, "Blocked by Wordfence") {
+		t.Errorf("the refusal body distinguishes a firewall from WordPress and must be shown\n---\n%s", summary)
 	}
 }

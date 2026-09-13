@@ -13,6 +13,10 @@
 //	WP_APP_PASSWORD='xxxx xxxx xxxx xxxx xxxx xxxx' \
 //	  go run ./cmd/wp-probe -site https://example.org -user david -out work/wp-probe
 //
+// Passing -url with the address of a single talk, or of a filtered listing,
+// saves a great deal of guessing: the post type behind the permalink and the
+// taxonomy behind each filter parameter are both reported directly.
+//
 // The password is taken from the environment, or from a file named by
 // -password-file, so that it does not appear in the shell history or in the
 // process list. Supplying no credentials at all is useful and safe: most of
@@ -32,6 +36,7 @@ import (
 
 func main() {
 	site := flag.String("site", "", "address of the WordPress site, for example https://example.org")
+	talkURL := flag.String("url", "", "address of one talk, or of a filtered listing, to work backwards from")
 	user := flag.String("user", "", "WordPress username the application password belongs to")
 	passwordFile := flag.String("password-file", "", "file holding the application password; the WP_APP_PASSWORD environment variable is used when this is empty")
 	out := flag.String("out", filepath.Join("work", "wp-probe"), "directory the responses and the summary are written to")
@@ -70,6 +75,16 @@ func main() {
 		Pass:   password,
 		OutDir: *out,
 		HTTP:   &http.Client{Timeout: *timeout},
+	}
+	if strings.TrimSpace(*talkURL) != "" {
+		// The query string is kept here, unlike the site address, because the
+		// filter parameters in it are half the reason for supplying the page.
+		parsed, err := url.Parse(strings.TrimSpace(*talkURL))
+		if err != nil || parsed.Host == "" {
+			fmt.Fprintf(os.Stderr, "wp-probe: could not read -url %q as an address\n", *talkURL)
+			os.Exit(2)
+		}
+		probe.TalkURL = parsed
 	}
 	summary := probe.Run()
 
