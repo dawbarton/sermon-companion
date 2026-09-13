@@ -32,6 +32,7 @@ where a correction on the site does not follow it quickly. How those feeds are
 produced has not been checked.
 
 Not in scope for now:
+
 - Building a podcast feed, social posts, or transcripts. The website is one
   integration; building a general publishing framework before a single site works
   is the wrong order.
