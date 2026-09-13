@@ -10,20 +10,28 @@ the end.
 ## Goal and deliberate non-goals
 
 After a service, the operator presses one button on the review page and the MP3,
-together with its title, speaker, series, and book of the Bible, arrives on the
-church website as a sermon entry. Everything the website needs is collected
+together with its title, speaker, series, and Bible passage, arrives on the
+church website as a published sermon. Everything the website needs is collected
 during or shortly after the service, mostly as defaults the operator confirms
-rather than as boxes to fill in.
+rather than as boxes to fill in. Nobody has to log in to the website.
+
+The MP3 is the existing export of the segments the operator included: the
+sermon, with the reading and Q&A when they are marked. The whole service is
+never uploaded, and the export path needs no change for this.
+
+The people doing this are the A/V team, each of whom may do it only once every
+month or two. The design is judged by whether someone who has forgotten how it
+works still gets it right, which rules out a draft that someone must then
+publish on the site: logging in is the step being removed. The check a draft
+would have provided moves into the app, as a final summary of exactly what will
+be published (title, speaker, series, passage, church, and the MP3's length)
+shown when the button is pressed. Publishing is not cheap to undo. The podcast
+flag is on by default, and the site links to Apple Podcasts and Spotify shows
+for each congregation, so a published talk very probably reaches podcast apps,
+where a correction on the site does not follow it quickly. How those feeds are
+produced has not been checked.
 
 Not in scope for now:
-
-- Publishing live without a person looking. The default is a draft that someone
-  presses publish on. Wrong audio on a public page is far more expensive than one
-  extra click, and the failure mode is embarrassing rather than merely annoying.
-  The site's talk pages link to Apple Podcasts and Spotify shows for each
-  congregation, so a published talk very probably reaches podcast apps as well,
-  where a correction on the site does not follow it quickly. How those feeds are
-  produced has not been checked.
 - Building a podcast feed, social posts, or transcripts. The website is one
   integration; building a general publishing framework before a single site works
   is the wrong order.
@@ -61,23 +69,28 @@ than a rewrite.
 ## What the website needs
 
 A talk is a post of the custom type `resource`, created at `/wp/v2/resource`.
-That type supports a title, a date, a featured image, and six taxonomies, and
-nothing else: it has no body, no excerpt, no author field over REST, and no
-registered meta. The fields below are therefore the whole of what an upload can
-set.
+Over REST that type exposes a title, a date, a featured image, and six
+taxonomies. Everything else on its edit screen belongs to an Advanced Custom
+Fields (ACF) group that the REST API does not expose: the audio, the Bible
+passage, the podcast flag, and the rest. The upload therefore depends on that
+group being made writable; see "How the audio is attached".
 
 | Field | On the site | Where it comes from today | Notes |
 | --- | --- | --- | --- |
 | Talk title | `title` | Not collected | The session's `title` names the service, which is not the same thing. Titles on the site are the talk's own ("The Lord's Prayer: Our Father's protection"), sometimes just the passage ("Romans 5:1-11"). |
-| Date | `date_gmt` | Session `startedAt` | Send `date_gmt` so the site's zone (`Europe/London`) cannot shift it. Existing talks are dated inconsistently, often on the day they were posted rather than the day they were preached; using the service date is a deliberate choice and makes the listing order right. |
+| Date | `date_gmt`, and an ACF Date field | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. Which of the two dates the listing shows has not been checked. |
 | Church | `resource-church` term | Session `church` | Three terms: Emmanuel Bishopston 128, Emmanuel City Centre 127, Emmanuel Westbury 129. The app's church name already matches the term name exactly. |
-| Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. |
-| Speaker | `resource-contributor` term | Not collected | 97 terms. Picked from the list, never typed: the site already has "James Maurice" where a file name says "JamesMorris". |
+| Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. The edit screen also shows Resource Type as a field, presumably an ACF taxonomy field bound to the same terms. |
+| Speaker | `resource-contributor` term | Not collected | 97 terms. Picked from the list wherever possible: the site already has "James Maurice" where a file name says "JamesMorris". A visiting speaker needs a new term, so the app must be able to create one, warning of near matches; see "Credentials". |
 | Series | `resource-series` term | Not collected | 286 terms, many congregation-specific ("The Lord's Prayer (EB)", "Amazing Grace (2 Kings; ECC)"), though the suffix is not used consistently. Optional: some talks have none. |
-| Book of the Bible | `bible_book` term | Not collected | 66 terms, one per book, slugs numbered in canonical order (`040-matthew`). A book, not a passage. There is no passage field; where a passage appears, it is in the title. |
+| Bible passage | ACF free text | Not collected | The full reference, such as "Matthew 6:13". Typed each time. |
+| Book of the Bible | `bible_book` term | Derived | 66 terms, one per book, slugs numbered in canonical order (`040-matthew`). Derived from the book named in the passage and shown for confirmation; a passage spanning several books needs a choice. |
 | Topic | `resource-topic` term | Not collected | 17 terms, used mainly by blog posts. Leave empty. |
 | Featured image | `featured_media` | Not collected | Set on some talks (a shared "Website Sermon Tiles" image), not on others. Leave empty unless the church wants a default. |
-| The MP3 | A media attachment whose parent is the talk | `exports/YYYY-MM-DD-Church.mp3` | See below. |
+| Audio | ACF file field holding a media attachment | `exports/YYYY-MM-DD-Church.mp3` | Uploaded to the media library attached to the talk, then selected in this field. See below. |
+| Include in podcast feed | ACF yes/no | Fixed | Set to yes explicitly, since a field's default set in the admin screen may not apply to a post created over REST. |
+| Audio info | ACF, generated | Nothing | Filled in by the site from the media file. Whether that happens on a REST save, or only in the admin screen, is unknown. |
+| Subtitle, Summary, Content, Video source, YouTube URL, Sharing | ACF | Nothing | Not used for sermons; left empty. |
 
 ### How the audio is attached
 
@@ -87,15 +100,31 @@ carries an audio URL in a field the REST API shows. The talk page is an
 Elementor template whose audio player renders the attachment's `source_url`; on
 the one talk checked that has no audio attachment, the player is absent.
 
-What the probe cannot see is how the player finds the file. Two mechanisms fit
-the evidence equally well: the template reads the talk's attached audio, or it
-reads an ACF file field whose uploads WordPress also attaches to the post. The
-second is plausible, because the same template shows a per-talk YouTube link
-that must come from a custom field, and `acf` is empty in every REST response
-and schema, which is what a field group not exposed to REST looks like. If the
-player reads a hidden field, an upload that only attaches the file produces a
-talk with no player. This is settled by looking at a talk's edit screen in the
-WordPress admin, or by one test draft, before step 2 is written.
+The edit screen settles how the player finds the file. The Resources field group
+has an Audio field that is a media file selector, so the player reads that
+field, and the attachment's parent is a side effect of choosing a file through
+it. An upload that only attached the MP3 would produce a talk with no player
+and, very probably, nothing in the podcast feed.
+
+That field, the Bible passage, and the podcast flag belong to an ACF group the
+REST API does not expose: `acf` is empty in every response and schema. There are
+three ways to write them, in order of preference.
+
+1. **Turn on "Show in REST API" for the Resources field group.** This is one
+   setting for a site administrator, available in ACF 6.1 and later (recalled
+   rather than checked). The group's fields then appear under `acf` in the
+   `resource` schema with their names and types, and are written in the same
+   request as the title and terms. Nothing is installed. It also makes those
+   values publicly readable, which for a published sermon's passage and audio
+   is harmless.
+2. **A small mu-plugin** registering the fields with `register_rest_field`. The
+   effect is the same, but it is code on the site that someone has to keep.
+3. **Writing the post meta by some other route.** ACF stores a hidden reference
+   to the field's key beside each value (again recalled), and a value written
+   without it may not be read reliably. Not recommended.
+
+This blocks step 2. Until the group is writable, the app can create the talk and
+upload the file but cannot make the audio play.
 
 Attached media are served from `downloads.emmanuelbristol.org.uk` rather than
 `wp-content/uploads`, so an offload plugin copies each upload to separate
@@ -127,11 +156,13 @@ are not equivalent.
   the default is wanted. On this site it is one request:
   `/wp/v2/resource?resource-church=128&resource-type=270&_embed=wp:term`.
 
-The proposal is to use the local session as the primary source, fall back to the
-website when there is no local history, and use the website in both cases for the
-*lists*: the set of speakers and series offered in the interface should be the
-site's real terms, cached, so that the operator picks an existing term rather
-than creating a near-duplicate by typing.
+The website is the primary source. An operator may upload only every month or
+two, sessions are deleted after 60 days by default, and other people may have
+posted in between, so the last local session is usually either gone or out of
+date. The website also supplies the *lists*: the speakers and series offered in
+the interface are the site's real terms, cached, so that the operator picks an
+existing term rather than creating a near-duplicate by typing. The last local
+session for the same church is the fallback when the site cannot be reached.
 
 The Bishopston record, the fifteen talks from 31 May to 13 September 2026,
 settles two of these. Series run for several weeks (1 Thessalonians for at least
@@ -147,9 +178,9 @@ eventually accepted without being read. Instead the list puts that church's
 recent speakers first, which makes the right choice one click without ever
 making it for the operator.
 
-The book of the Bible usually follows the series but not always (one talk in the
-Lord's Prayer series is filed under Ezekiel), so it defaults with the series and
-is shown for confirmation.
+The book of the Bible is not defaulted; it is derived from the passage, which is
+typed each time. That also handles the talk in the Lord's Prayer series filed
+under Ezekiel, which a default taken from the series would have got wrong.
 
 The series list needs narrowing to be usable: 286 terms with no church attached
 to them. Offer first the series used by that church's recent talks, then the
@@ -180,12 +211,15 @@ term.
       "site": "https://www.emmanuelbristol.org.uk",
       "user": "sermon-companion",
       "postType": "resource",
-      "status": "draft",
+      "status": "publish",
       "fixedTerms": {"resource-church": 128, "resource-type": 270},
+      // ACF field names are placeholders until the group is exposed over REST.
+      "fixedAcf": {"<podcast field>": true},
       "fields": [
         {"key": "speaker", "label": "Speaker", "source": {"taxonomy": "resource-contributor"}, "carryOver": "never", "recentFirst": true},
         {"key": "series",  "label": "Series",  "source": {"taxonomy": "resource-series"}, "carryOver": "always", "optional": true},
-        {"key": "book",    "label": "Book of the Bible", "source": {"taxonomy": "bible_book"}, "carryOver": "withSeries"}
+        {"key": "passage", "label": "Bible passage", "source": {"acf": "<passage field>"}, "carryOver": "never"},
+        {"key": "book",    "label": "Book of the Bible", "source": {"taxonomy": "bible_book"}, "derivedFrom": "passage"}
       ]
     }
   }
@@ -195,7 +229,7 @@ term.
 ```jsonc
 // session.json, schema 3
 "talk": {"title": "The Lord's Prayer: Our Father's protection",
-         "fields": {"speaker": 296, "series": 736, "book": 239}},
+         "fields": {"speaker": 296, "series": 736, "passage": "Matthew 6:13", "book": 239}},
 "publish": {"status": "uploaded", "target": "Emmanuel Bishopston", "postId": 15944,
             "mediaId": 15945, "postUrl": "https://www.emmanuelbristol.org.uk/?p=15944",
             "startedAt": "...", "endedAt": "...", "error": ""}
@@ -225,22 +259,31 @@ embedded browser can reach `127.0.0.1:8765`, so "local" is not "private".
 **They are not narrowly scoped.** An application password carries the full
 authority of the WordPress account it belongs to; WordPress cannot restrict one
 to "upload media and create one post type". The mitigation is the account, not
-the password: a dedicated user, created for this purpose, with the least role
-that can do the job. Author can upload files, create and publish its own posts,
+the password: an account with the least role that can do the job, ideally one
+used for nothing else. Author can upload files, create and publish its own posts,
 and assign existing terms; Editor is needed to touch anyone else's posts. If the
 site keeps WordPress's default capabilities for its custom taxonomies, creating
-a *new* term needs `manage_categories`, which Author lacks, so a new speaker or
-series would have to be added on the site first. That is arguably the right
-behaviour, since it prevents near-duplicates, but it has to be said in the
-interface. The capability mapping for these taxonomies has not been checked. If
+a *new* term needs `manage_categories`, which Author lacks. Asking a volunteer
+to add a visiting speaker on the site first defeats the point of not logging in,
+so the account needs that capability: either the Editor role, which can also
+edit every other congregation's talks, or Author with `manage_categories` added
+by a role editor or a line in a mu-plugin. The authenticated probe reports
+whether the account has `manage_categories`, but not how these taxonomies map
+their capabilities, which has not been checked. If
 the site has a role editor, or will take a small mu-plugin, the capabilities can
 be trimmed further. This is worth stating plainly rather than implying the
 credential is safer than it is.
 
 The site already has at least five accounts that upload talks. Judging by the
 file names, user 5 posts City Centre's, user 6 Westbury's, users 7 and 8
-Bishopston's, and user 3 made a bulk upload of older talks in July. A
-dedicated account keeps the app's uploads distinguishable from theirs.
+Bishopston's, and user 3 made a bulk upload of older talks in July.
+
+For Bishopston the decision is that the congregation's own account does all of
+the uploading and post creation, and the app holds an application password for
+it. That account is shared rather than created for the app, so the password
+carries whatever else the account may do, and revoking the application password
+is the way to cut the app off without disturbing anyone's login. Its role is
+not yet known.
 
 Windows DPAPI would encrypt the file at rest against another user of the same
 machine. It is a reasonable later addition and not a substitute for the above.
@@ -250,10 +293,11 @@ machine. It is a reasonable later addition and not a substitute for the above.
 A church broadband connection uploading 20 to 40 MB will fail sometimes, so the
 upload is designed around failing rather than around succeeding.
 
-- **Three steps, each recorded.** The talk is created first, as a draft, and its
-  post ID is written to the session. The MP3 is then uploaded with `post` set to
-  that ID, and the media ID is written. Only then is the talk published, if
-  publishing is configured at all. A draft left behind by a failure is invisible
+- **Three steps, each recorded.** The talk is created first, as a draft with its
+  title, terms, and passage, and its post ID is written to the session. The MP3
+  is then uploaded with `post` set to that ID, and the media ID is written. The
+  last request sets the Audio field and publishes together, so a published talk
+  never lacks its audio. A draft left behind by a failure is invisible
   to the public, whereas an attachment uploaded first is a public file with
   nothing pointing at it. A retry reuses whatever IDs are already recorded.
   Today's hand upload happened in this order, post ID before media ID, though
@@ -283,9 +327,10 @@ upload is designed around failing rather than around succeeding.
   through the body, and a second upload of a session that already has a post ID.
 - `--dry-run` printing the exact requests, so a change can be reviewed without a
   live site.
-- One real end-to-end run into a draft, deleted afterwards, before the button
-  appears in the application at all. Check the draft's preview shows the audio
-  player; that is the test of the question under "How the audio is attached".
+- One real end-to-end run before the button appears in the application at all,
+  with "Include in podcast feed" set to no so that nothing reaches podcast apps.
+  Check that the published page's player plays and that Audio info was
+  generated, then delete the talk and its attachment.
 
 ## A product change to be explicit about
 
@@ -319,8 +364,9 @@ direct read-only requests the probe does not yet make. The site runs WordPress
   terms in `resource-church`.
 - **Talk permalinks are `/resources/<slug>/`,** not under `/emmanuel-sermons/`,
   which is a listing page.
-- **The audio is an attachment, very probably displayed through it.** See "How
-  the audio is attached", including the one thing still unconfirmed.
+- **The audio is an ACF file field** in a field group the REST API does not
+  expose, and the MP3 is also attached to the talk. The edit screen, rather than
+  the probe, established this. See "How the audio is attached".
 - **Someone already uploads this app's output by hand.** The newest attachment,
   `2026-09-13-Emmanuel-Bishopston.mp3`, carries "Created by Sermon Companion" in
   its tags and was uploaded at 12:25, and the talk was published at 12:29 on the
@@ -330,52 +376,51 @@ direct read-only requests the probe does not yet make. The site runs WordPress
 
 ## Running the probe
 
+The probe has answered what it was built for. One more run is worth making,
+authenticated as the uploading account and after the Resources field group is
+exposed over REST: it reports the account's role and capabilities, and the
+saved `11-schema-resource.json` then names the ACF fields and their types. Its
+known defects (term lists stop at 100, `-url` takes one address, and attached
+media and ACF properties are not summarised) do not affect that run, so they are
+left unfixed, and the probe is retired once `cmd/sermon-publish` exists.
+
 ```sh
 go run ./cmd/wp-probe \
   -site https://www.emmanuelbristol.org.uk \
   -url  'https://www.emmanuelbristol.org.uk/resources/the-lords-prayer-our-fathers-protection/' \
-  -out  work/wp-probe
+  -user '<account username>' \
+  -password-file '<file holding the application password>' \
+  -out  work/wp-probe-auth
 ```
 
-`-url` currently takes one address. A talk's permalink resolves the post type
-and fields; a filtered listing resolves the facet parameters. Until the flag can
-be repeated, run it once with each to get both.
-
-Credentials are optional and most of the above is publicly readable without
-them. To see what an account may write, add `-user` and supply the application
-password through `WP_APP_PASSWORD` or `-password-file`, so that it stays out of
-the shell history and the process list. The command makes only `GET` and
-`OPTIONS` requests, writes `work/wp-probe/SUMMARY.md` and the raw responses
-beside it, and keeps the account's email address out of both.
+The password is read from a file, or from `WP_APP_PASSWORD`, so that it stays
+out of the shell history and the process list. The command makes only `GET` and
+`OPTIONS` requests and keeps the account's email address out of what it saves.
 
 ## Open questions
 
-The first blocks step 2; the next two change what the app produces.
+The first two block step 2.
 
-1. **Does the audio player read the attachment or a hidden field?** A talk's edit
-   screen in the WordPress admin answers it: an audio or file field there means a
-   hidden ACF field, and its absence means the attachment. If it is a field, the
-   options are asking the site's administrator to expose that field group to the
-   REST API, or setting it some other way.
-2. **Whole service or sermon only?** Every talk on the site is 18 to 50 minutes,
-   so the site carries talks rather than services, and today's hand upload of
-   this app's export was 31 minutes. What remains is whether that export was the
-   sermon alone or included the reading, and whether the app should produce a
-   sermon-only file of its own. The second reaches back into mastering, not just
-   the upload.
-3. **Draft or published?** The recommendation remains draft by default. Today's
-   hand upload was published within minutes, and publishing probably reaches podcast
-   apps, which cuts both ways: it is the reason for caution, and it is the reason
-   someone may want no further step.
-4. **Who posts these now, and will the app take over or share?** Several accounts
-   upload talks, apparently one per congregation, and one of them is already
-   uploading this app's MP3 for Bishopston. If the app uploads while a person
-   also posts by hand, the site gets two talks. The app should probably serve
-   only the congregations whose uploader has agreed to stop doing it by hand.
-5. **Are there churches outside Emmanuel Bristol?** If not, the per-church target
-   map is simply three names pointing at one site.
-6. **What is the site's maximum upload size?** Visible in the WordPress admin at
-   Media then Add New, stated as "Maximum upload file size". The 42 MB file
-   already on the site suggests it is no constraint; the figure confirms it.
-7. **What role will the dedicated account have, and can it create terms?** Answered
-   by the authenticated probe once an account exists.
+1. **Will the Resources field group be exposed over REST?** Without it the app
+   cannot set the audio. Who administers the site, and whether they would rather
+   tick that setting or accept a small mu-plugin, decides which.
+2. **What role does the Bishopston account have?** It needs to upload files,
+   publish `resource` posts, and create contributor and series terms. Author
+   covers the first two; the third needs `manage_categories` by default. The
+   authenticated probe reports what it has now.
+3. **Is Audio info generated when a talk is saved over REST?** Found by the
+   end-to-end test. If not, the app may have to fill it in, or it stays empty.
+4. **Which date does the listing show,** the post date or the ACF Date field?
+   Setting both to the service date makes this moot unless they are meant to
+   differ.
+5. **What is the site's maximum upload size?** Media then Add New in the admin,
+   "Maximum upload file size". The 42 MB file already on the site suggests it is
+   no constraint.
+6. **Bishopston only?** The working assumption is that only Bishopston uploads
+   through the app, while City Centre and Westbury go on posting by hand with
+   their own accounts.
+
+Settled on 13 September 2026: the MP3 is the sermon, with the reading and Q&A
+when they are marked, never the whole service; talks are published directly
+rather than drafted; and one Bishopston account does all of that congregation's
+uploading and post creation.
