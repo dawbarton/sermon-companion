@@ -79,19 +79,19 @@ group being made writable; see "How the audio is attached".
 | Field | On the site | Where it comes from today | Notes |
 | --- | --- | --- | --- |
 | Talk title | `title` | Not collected | The session's `title` names the service, which is not the same thing. Titles on the site are the talk's own ("The Lord's Prayer: Our Father's protection"), sometimes just the passage ("Romans 5:1-11"). |
-| Date | `date_gmt`, and an ACF Date field | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. Which of the two dates the listing shows has not been checked. |
+| Date | `date_gmt`, and ACF `resource_date` | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. `resource_date` is a `Ymd` string, such as `20260913`. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. Which of the two dates the listing shows has not been checked. |
 | Church | `resource-church` term | Session `church` | Three terms: Emmanuel Bishopston 128, Emmanuel City Centre 127, Emmanuel Westbury 129. The app's church name already matches the term name exactly. |
-| Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. The edit screen also shows Resource Type as a field, presumably an ACF taxonomy field bound to the same terms. |
+| Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. The edit screen's Resource Type is ACF `resource_type`, which the schema marks required with exactly one term ID, so `270` is sent there as well as in the taxonomy. |
 | Speaker | `resource-contributor` term | Not collected | 97 terms. Picked from the list wherever possible: the site already has "James Maurice" where a file name says "JamesMorris". A visiting speaker needs a new term, so the app must be able to create one, warning of near matches; see "Credentials". |
 | Series | `resource-series` term | Not collected | 286 terms, many congregation-specific ("The Lord's Prayer (EB)", "Amazing Grace (2 Kings; ECC)"), though the suffix is not used consistently. Optional: some talks have none. |
-| Bible passage | ACF free text | Not collected | The full reference, such as "Matthew 6:13". Typed each time. |
+| Bible passage | ACF `resource_bible_passages`, free text | Not collected | The full reference, such as "Matthew 6:13". Typed each time. |
 | Book of the Bible | `bible_book` term | Derived | 66 terms, one per book, slugs numbered in canonical order (`040-matthew`). Derived from the book named in the passage and shown for confirmation; a passage spanning several books needs a choice. |
 | Topic | `resource-topic` term | Not collected | 17 terms, used mainly by blog posts. Leave empty. |
 | Featured image | `featured_media` | Not collected | Set on some talks (a shared "Website Sermon Tiles" image), not on others. Leave empty unless the church wants a default. |
-| Audio | ACF file field holding a media attachment | `exports/YYYY-MM-DD-Church.mp3` | Uploaded to the media library attached to the talk, then selected in this field. See below. |
-| Include in podcast feed | ACF yes/no | Fixed | Set to yes explicitly, since a field's default set in the admin screen may not apply to a post created over REST. |
-| Audio info | ACF, generated | Nothing | Filled in by the site from the media file. Whether that happens on a REST save, or only in the admin screen, is unknown. |
-| Subtitle, Summary, Content, Video source, YouTube URL, Sharing | ACF | Nothing | Not used for sermons; left empty. |
+| Audio | ACF `resource_audio`, an attachment ID | `exports/YYYY-MM-DD-Church.mp3` | Uploaded to the media library attached to the talk, then selected in this field. See below. |
+| Include in podcast feed | ACF `resource_include_in_podcast_feed`, the string `Yes` or `No` | Fixed | Sent as `Yes` explicitly, since the field's default may not apply to a post created over REST. |
+| Audio info | ACF `resource_audio_info`: `resource_audio_file_size` in bytes, `resource_audio_duration` as `HH:MM:SS` | The export | Filled in by the site from the media file when a talk is saved in the admin; whether a REST save does the same is unknown. The field is writable, so the app sends both values itself. |
+| Subtitle, Summary, Content, Video source, YouTube and Vimeo URLs, Sharing | ACF `resource_subtitle`, `resource_summary`, `resource_content`, `resource_video_source`, `resource_youtube_url`, `resource_vimeo_url`, `resource_sharing` | Nothing | Not used for sermons; left empty. |
 
 ### How the audio is attached
 
@@ -128,8 +128,9 @@ three ways to write them, in order of preference.
    to the field's key beside each value (again recalled), and a value written
    without it may not be read reliably. Not recommended.
 
-This blocks step 2. Until the group is writable, the app can create the talk and
-upload the file but cannot make the audio play.
+Option 1 was done on 13 September 2026. The fields' REST names are in the table
+above, and the Lord's Prayer talk now reads back `resource_audio: 15945`, its
+attachment's ID, which confirms that the Audio field holds the attachment.
 
 Attached media are served from `downloads.emmanuelbristol.org.uk` rather than
 `wp-content/uploads`, so an offload plugin copies each upload to separate
@@ -219,12 +220,11 @@ term.
       "postType": "resource",
       "status": "publish",
       "fixedTerms": {"resource-church": 128, "resource-type": 270},
-      // ACF field names are placeholders until the group is exposed over REST.
-      "fixedAcf": {"<podcast field>": true},
+      "fixedAcf": {"resource_type": 270, "resource_include_in_podcast_feed": "Yes"},
       "fields": [
         {"key": "speaker", "label": "Speaker", "source": {"taxonomy": "resource-contributor"}, "carryOver": "never", "recentFirst": true},
         {"key": "series",  "label": "Series",  "source": {"taxonomy": "resource-series"}, "carryOver": "always", "optional": true},
-        {"key": "passage", "label": "Bible passage", "source": {"acf": "<passage field>"}, "carryOver": "never"},
+        {"key": "passage", "label": "Bible passage", "source": {"acf": "resource_bible_passages"}, "carryOver": "never"},
         {"key": "book",    "label": "Book of the Bible", "source": {"taxonomy": "bible_book"}, "derivedFrom": "passage"}
       ]
     }
@@ -410,17 +410,22 @@ out of the shell history and the process list. The command makes only `GET` and
 
 The first two block step 2.
 
-1. **Is the Resources field group exposed over REST?** Now an action rather than
-   a question: the setting is described under "How the audio is attached", and
-   the authenticated probe confirms it by listing the ACF fields in the
-   `resource` schema.
+1. **Why does WordPress not see the application password?** On 13 September
+   2026 signing in returned `rest_not_logged_in`, and so did a deliberately
+   invalid username, which WordPress rejects as `invalid_username` whenever it
+   receives Basic credentials at all. The `Authorization` header is therefore
+   not reaching WordPress, or something intercepts it first. The site is behind
+   Cloudflare and served by LiteSpeed. On LiteSpeed or Apache the usual cause is
+   a server that does not pass the header on to PHP, fixed by a rewrite line in
+   `.htaccess`; Site Health in the admin reports it when it applies.
 2. **Can the Author account create terms?** It should, by the reasoning under
    "Credentials", unless the taxonomies were registered with stricter
    capabilities. The authenticated probe would show this if extended to read
    the taxonomies with `context=edit`; otherwise the first upload with a new
    speaker settles it.
-3. **Is Audio info generated when a talk is saved over REST?** Found by the
-   end-to-end test. If not, the app may have to fill it in, or it stays empty.
+3. **Is Audio info generated when a talk is saved over REST?** It matters less
+   now: the field is writable, and the app sends the size and duration itself.
+   The end-to-end test shows whether the site overwrites them.
 4. **Which date does the listing show,** the post date or the ACF Date field?
    Setting both to the service date makes this moot unless they are meant to
    differ.
