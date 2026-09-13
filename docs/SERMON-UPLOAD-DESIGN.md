@@ -410,14 +410,29 @@ out of the shell history and the process list. The command makes only `GET` and
 
 The first two block step 2.
 
-1. **Why does WordPress not see the application password?** On 13 September
-   2026 signing in returned `rest_not_logged_in`, and so did a deliberately
-   invalid username, which WordPress rejects as `invalid_username` whenever it
-   receives Basic credentials at all. The `Authorization` header is therefore
-   not reaching WordPress, or something intercepts it first. The site is behind
-   Cloudflare and served by LiteSpeed. On LiteSpeed or Apache the usual cause is
-   a server that does not pass the header on to PHP, fixed by a rewrite line in
-   `.htaccess`; Site Health in the admin reports it when it applies.
+1. **Does the fix for application passwords work?** On 13 September 2026
+   signing in returned `rest_not_logged_in`, as did a deliberately invalid
+   username. The header is not the cause: `.htaccess` passes it on and Site
+   Health's test of it passes. Reading WordPress's and Defender's source (the
+   free edition's current code; the site runs Defender Pro) found two faults.
+   - *The credentials are never checked.* WordPress tries an application
+     password only once it knows the request is an API request, and for REST it
+     learns that from `REST_REQUEST`, defined when the request is parsed. Defender's
+     Session Protection calls `is_user_logged_in()` on `init`, earlier, so the
+     current user is settled as nobody and the password is ignored. Core's own
+     comment says the check "may happen too early".
+   - *No generated password can match.* Defender's Strong Password feature
+     replaces the password generator with one that adds symbols. WordPress
+     hashes that password, but strips everything except letters and digits
+     both from the copy it displays and from the password it is given at sign-in.
+     That is why the displayed passwords were 17 and 18 characters.
+
+   The proposed fix is one WPCode snippet, run everywhere, which treats any
+   `/wp-json/` request as an API request through the
+   `application_password_is_api_request` filter, and keeps generated
+   application passwords alphanumeric. WPCode runs such snippets on
+   `plugins_loaded`, before `init`. A new application password must be created
+   after the snippet is active.
 2. **Can the Author account create terms?** It should, by the reasoning under
    "Credentials", unless the taxonomies were registered with stricter
    capabilities. The authenticated probe would show this if extended to read
