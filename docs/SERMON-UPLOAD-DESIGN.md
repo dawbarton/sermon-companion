@@ -19,8 +19,8 @@ The MP3 is the existing export of the segments the operator included: the
 sermon, with the reading and Q&A when they are marked. The whole service is
 never uploaded, and the export path needs no change for this.
 
-The people doing this are the A/V team, each of whom may do it only once every
-month or two. The design is judged by whether someone who has forgotten how it
+A talk is uploaded every week, but by different members of the A/V team, each of
+whom may do it only once every month or two. The design is judged by whether someone who has forgotten how it
 works still gets it right, which rules out a draft that someone must then
 publish on the site: logging in is the step being removed. The check a draft
 would have provided moves into the app, as a final summary of exactly what will
@@ -112,8 +112,12 @@ REST API does not expose: `acf` is empty in every response and schema. There are
 three ways to write them, in order of preference.
 
 1. **Turn on "Show in REST API" for the Resources field group.** This is one
-   setting for a site administrator, available in ACF 6.1 and later (recalled
-   rather than checked). The group's fields then appear under `acf` in the
+   setting for a site administrator: ACF, then Field Groups, then the group that
+   holds these fields, then its Group Settings tab. ACF has supported it since
+   5.11, and a File field is written as an attachment ID; both are from ACF's own
+   documentation. If the group is defined in the theme's or a plugin's code
+   rather than in the admin, the setting cannot be changed there and the code
+   has to change instead. The group's fields then appear under `acf` in the
    `resource` schema with their names and types, and are written in the same
    request as the title and terms. Nothing is installed. It also makes those
    values publicly readable, which for a published sermon's passage and audio
@@ -157,10 +161,10 @@ are not equivalent.
   the default is wanted. On this site it is one request:
   `/wp/v2/resource?resource-church=128&resource-type=270&_embed=wp:term`.
 
-The website is the primary source. An operator may upload only every month or
-two, sessions are deleted after 60 days by default, and other people may have
-posted in between, so the last local session is usually either gone or out of
-date. The website also supplies the *lists*: the speakers and series offered in
+The website is the primary source. Uploads are weekly, so last week's session
+will normally still be on the church computer, but they are made by different
+people, and the website is what reflects any correction made to a talk after it
+was uploaded, whoever uploaded it and from wherever. The website also supplies the *lists*: the speakers and series offered in
 the interface are the site's real terms, cached, so that the operator picks an
 existing term rather than creating a near-duplicate by typing. The last local
 session for the same church is the fallback when the site cannot be reached.
@@ -180,8 +184,9 @@ recent speakers first, which makes the right choice one click without ever
 making it for the operator.
 
 The book of the Bible is not defaulted; it is derived from the passage, which is
-typed each time. That also handles the talk in the Lord's Prayer series filed
-under Ezekiel, which a default taken from the series would have got wrong.
+typed each time. A series does not fix the book: the Lord's Prayer talk filed
+under Ezekiel is correct, because that series draws on different books to show
+different aspects of the prayer.
 
 The series list needs narrowing to be usable: 286 terms with no church attached
 to them. Offer first the series used by that church's recent talks, then the
@@ -239,7 +244,8 @@ term.
 Term fields store the term ID, which is what the site accepts and survives a
 rename; the interface shows the cached name. Keying the targets by church makes
 "the same church" mean something concrete and still handles a church with a site
-of its own. The schema change is a minor version bump under the project's own
+of its own. The session's existing Church field selects the target, so City
+Centre joins by adding a target that pins term 127. The schema change is a minor version bump under the project's own
 rules.
 
 ## Credentials
@@ -262,15 +268,19 @@ authority of the WordPress account it belongs to; WordPress cannot restrict one
 to "upload media and create one post type". The mitigation is the account, not
 the password: an account with the least role that can do the job, ideally one
 used for nothing else. Author can upload files, create and publish its own posts,
-and assign existing terms; Editor is needed to touch anyone else's posts. If the
-site keeps WordPress's default capabilities for its custom taxonomies, creating
-a *new* term needs `manage_categories`, which Author lacks. Asking a volunteer
-to add a visiting speaker on the site first defeats the point of not logging in,
-so the account needs that capability: either the Editor role, which can also
-edit every other congregation's talks, or Author with `manage_categories` added
-by a role editor or a line in a mu-plugin. The authenticated probe reports
-whether the account has `manage_categories`, but not how these taxonomies map
-their capabilities, which has not been checked. If
+and assign terms; Editor is needed to touch anyone else's posts.
+
+Author should also be enough to create a new term, which a volunteer needs for a
+visiting speaker or a new series. All six taxonomies on `resource` are
+non-hierarchical, and for those the REST API allows creating a term to anyone
+holding the taxonomy's `assign_terms` capability, which by default maps to
+`edit_posts`. This was checked against `create_item_permissions_check` in
+WordPress's `WP_REST_Terms_Controller` and the default capabilities in
+`WP_Taxonomy`. `manage_categories` is needed only for a hierarchical taxonomy,
+or if the plugin that registers these taxonomies set stricter capabilities,
+which cannot be seen without signing in. If it did, the remedy is to grant that
+one capability to that one user, with `wp user add-cap <user> manage_categories`
+or a role editor plugin, rather than promoting the account to Editor. If
 the site has a role editor, or will take a small mu-plugin, the capabilities can
 be trimmed further. This is worth stating plainly rather than implying the
 credential is safer than it is.
@@ -279,12 +289,10 @@ The site already has at least five accounts that upload talks. Judging by the
 file names, user 5 posts City Centre's, user 6 Westbury's, users 7 and 8
 Bishopston's, and user 3 made a bulk upload of older talks in July.
 
-For Bishopston the decision is that the congregation's own account does all of
-the uploading and post creation, and the app holds an application password for
-it. That account is shared rather than created for the app, so the password
-carries whatever else the account may do, and revoking the application password
-is the way to cut the app off without disturbing anyone's login. Its role is
-not yet known.
+For Bishopston the decision is that one account, used for nothing but uploading
+sermons, does all of the uploading and post creation, and the app holds an
+application password for it. The account has the Author role. Revoking the
+application password cuts the app off without affecting anything else.
 
 Windows DPAPI would encrypt the file at rest against another user of the same
 machine. It is a reasonable later addition and not a substitute for the above.
@@ -402,13 +410,15 @@ out of the shell history and the process list. The command makes only `GET` and
 
 The first two block step 2.
 
-1. **Will the Resources field group be exposed over REST?** Without it the app
-   cannot set the audio. Who administers the site, and whether they would rather
-   tick that setting or accept a small mu-plugin, decides which.
-2. **What role does the Bishopston account have?** It needs to upload files,
-   publish `resource` posts, and create contributor and series terms. Author
-   covers the first two; the third needs `manage_categories` by default. The
-   authenticated probe reports what it has now.
+1. **Is the Resources field group exposed over REST?** Now an action rather than
+   a question: the setting is described under "How the audio is attached", and
+   the authenticated probe confirms it by listing the ACF fields in the
+   `resource` schema.
+2. **Can the Author account create terms?** It should, by the reasoning under
+   "Credentials", unless the taxonomies were registered with stricter
+   capabilities. The authenticated probe would show this if extended to read
+   the taxonomies with `context=edit`; otherwise the first upload with a new
+   speaker settles it.
 3. **Is Audio info generated when a talk is saved over REST?** Found by the
    end-to-end test. If not, the app may have to fill it in, or it stays empty.
 4. **Which date does the listing show,** the post date or the ACF Date field?
@@ -417,11 +427,12 @@ The first two block step 2.
 5. **What is the site's maximum upload size?** Media then Add New in the admin,
    "Maximum upload file size". The 42 MB file already on the site suggests it is
    no constraint.
-6. **Bishopston only?** The working assumption is that only Bishopston uploads
-   through the app, while City Centre and Westbury go on posting by hand with
-   their own accounts.
+6. **Will City Centre use it too?** The session's Church field selects the
+   target, so another congregation needs only a configuration entry and, if it
+   keeps its own uploading account, its own application password.
 
 Settled on 13 September 2026: the MP3 is the sermon, with the reading and Q&A
 when they are marked, never the whole service; talks are published directly
-rather than drafted; and one Bishopston account does all of that congregation's
-uploading and post creation.
+rather than drafted; uploads are weekly, by different members of the A/V team;
+one Author account, used for nothing else, does all of Bishopston's uploading
+and post creation; and the session's Church field chooses the congregation.
