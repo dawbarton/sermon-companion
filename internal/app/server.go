@@ -55,6 +55,7 @@ type Server struct {
 	// both.
 	publishHTTP   *http.Client
 	probeDuration func(ctx context.Context, ffprobe, path string) (time.Duration, error)
+	web           website
 }
 
 var errRecordingNotAdvanced = errors.New("wait for the recording to advance before starting the next segment")
@@ -106,6 +107,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("PATCH /api/sessions/{id}/talk", s.patchTalk)
 	mux.HandleFunc("POST /api/sessions/{id}/publish", s.startPublish)
+	mux.HandleFunc("POST /api/sessions/{id}/talk/prefill", s.prefillTalk)
+	mux.HandleFunc("GET /api/sessions/{id}/talk/check", s.checkTalk)
+	mux.HandleFunc("GET /api/publish", s.publishSettings)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
@@ -130,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", s.assets()))
 	mux.HandleFunc("GET /dock", s.page("dock.html"))
 	mux.HandleFunc("GET /log", s.page("log.html"))
+	mux.HandleFunc("GET /upload", s.page("upload.html"))
 	mux.HandleFunc("GET /", s.page("index.html"))
 	return s.localOnlyHeaders(mux)
 }
@@ -177,7 +182,7 @@ func (s *Server) assets() http.Handler {
 
 func (s *Server) page(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/dock" && r.URL.Path != "/log" {
+		if r.URL.Path != "/" && r.URL.Path != "/dock" && r.URL.Path != "/log" && r.URL.Path != "/upload" {
 			http.NotFound(w, r)
 			return
 		}

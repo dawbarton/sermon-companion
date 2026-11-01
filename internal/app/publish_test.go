@@ -44,7 +44,7 @@ func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lists := map[string]string{
 		"/wp/v2/resource-church":      `[{"id":128,"name":"Emmanuel Bishopston"}]`,
 		"/wp/v2/resource-type":        `[{"id":270,"name":"Sermon"}]`,
-		"/wp/v2/resource-contributor": `[{"id":296,"name":"Jim Walford"}]`,
+		"/wp/v2/resource-contributor": `[{"id":296,"name":"Jim Walford"},{"id":299,"name":"James Maurice"},{"id":1,"name":"Ann Other"}]`,
 		"/wp/v2/resource-series":      `[{"id":738,"name":"Life Together"}]`,
 		"/wp/v2/bible_book":           `[{"id":239,"name":"Matthew"}]`,
 	}
@@ -55,6 +55,9 @@ func (f *fakeSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(lists[path]))
 	case r.Method == http.MethodGet && path == "/wp/v2/resource" && r.URL.Query().Get("resource-series") != "":
 		w.Write([]byte(`[{"id":16415,"featured_media":16361}]`))
+	case r.Method == http.MethodGet && path == "/wp/v2/resource" && r.URL.Query().Get("resource-church") == "":
+		// The latest sermons, for the lists.
+		w.Write([]byte(`[{"id":16415,"date":"2026-10-25T10:30:00","link":"https://example.org/resources/lt/","title":{"rendered":"Life Together"},"featured_media":16361,"resource-church":[128],"resource-contributor":[296],"resource-series":[738]}]`))
 	case r.Method == http.MethodGet && path == "/wp/v2/resource":
 		if f.duplicate {
 			w.Write([]byte(`[{"id":16481,"date":"2026-11-01T12:00:00","link":"https://example.org/resources/by-hand/","title":{"rendered":"By hand"},"acf":{"resource_date":"20261101"}}]`))
@@ -107,6 +110,7 @@ type publishFixture struct {
 	site     *fakeSite
 	id       string
 	dir      string
+	root     string
 }
 
 func newPublishFixture(t *testing.T) *publishFixture {
@@ -147,17 +151,48 @@ func newPublishFixture(t *testing.T) *publishFixture {
 	}
 	settings := config.NewSettings(configPath, c)
 	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
-	server.publishHTTP = web.Client()
 	server.probeDuration = func(context.Context, string, string) (time.Duration, error) { return 31 * time.Minute, nil }
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		server.Shutdown(ctx)
 	})
-	f := &publishFixture{t: t, server: server, handler: server.Handler(), sessions: sessions, site: site, id: session.ID, dir: dir}
-	requestSession(t, f.handler, http.MethodPatch, "/api/sessions/"+f.id+"/talk",
-		`{"title":"What's wrong with us?","speakers":["Jim Walford"],"series":"Life Together","passage":"Matthew 6:13","videoUrl":"https://www.youtube.com/watch?v=FqAJchBCktM"}`)
+	f := &publishFixture{t: t, server: server, handler: server.Handler(), sessions: sessions, site: site, id: session.ID, dir: dir, root: root}
+	server.publishHTTP = &http.Client{Transport: routes{site: web.Client().Transport, youtube: http.HandlerFunc(f.youtube)}}
 	return f
+}
+
+// fillTalk gives the talk its details as the upload page would.
+func (f *publishFixture) fillTalk() {
+	f.t.Helper()
+	requestSession(f.t, f.handler, http.MethodPatch, "/api/sessions/"+f.id+"/talk",
+		`{"title":"What's wrong with us?","speakers":["Jim Walford"],"series":"Life Together","passage":"Matthew 6:13","videoUrl":"https://www.youtube.com/watch?v=FqAJchBCktM"}`)
+}
+
+// youtube answers for the channel's feed.
+func (f *publishFixture) youtube(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/feeds/videos.xml" || r.URL.Query().Get("channel_id") != "UCReU3dVxdLKPuSs59dBgG6Q" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Write([]byte(`<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns="http://www.w3.org/2005/Atom">
+<entry><yt:videoId>FqAJchBCktM</yt:videoId><title>What's Wrong with Us? Sunday 1 November 2026</title><published>` +
+		time.Date(2026, 11, 1, 10, 1, 42, 0, time.Local).UTC().Format(time.RFC3339) + `</published></entry></feed>`))
+}
+
+// routes sends YouTube's requests to a handler and the rest to the site.
+type routes struct {
+	site    http.RoundTripper
+	youtube http.Handler
+}
+
+func (r routes) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Host == "www.youtube.com" {
+		recorder := httptest.NewRecorder()
+		r.youtube.ServeHTTP(recorder, request)
+		return recorder.Result(), nil
+	}
+	return r.site.RoundTrip(request)
 }
 
 // publish presses Publish and waits for the upload to end.
@@ -181,6 +216,7 @@ func (f *publishFixture) publish(body string) *store.Session {
 
 func TestPublishUploadsTheTalkAndRecordsEachStep(t *testing.T) {
 	f := newPublishFixture(t)
+	f.fillTalk()
 	session := f.publish(`{}`)
 	if session.Publish == nil || session.Publish.Status != "completed" || !session.Publish.Progress.Finished ||
 		session.Publish.Progress.Link != "https://example.org/resources/test/" || session.Publish.Error != "" {
@@ -218,6 +254,7 @@ func TestPublishUploadsTheTalkAndRecordsEachStep(t *testing.T) {
 
 func TestFailedUploadCarriesOnAndReplacesAnMP3MadeAgain(t *testing.T) {
 	f := newPublishFixture(t)
+	f.fillTalk()
 	f.site.failUploads = 1
 	session := f.publish(`{}`)
 	if session.Publish.Status != "failed" || !strings.Contains(session.Publish.Error, "larger than the website accepts") || session.Publish.Progress.PostID != 500 {
@@ -237,6 +274,7 @@ func TestFailedUploadCarriesOnAndReplacesAnMP3MadeAgain(t *testing.T) {
 
 func TestAnMP3MadeAgainReplacesTheOneUploadedBefore(t *testing.T) {
 	f := newPublishFixture(t)
+	f.fillTalk()
 	// The file was uploaded, then the last step failed; the operator then
 	// fixed a segment and made the MP3 again.
 	uploaded := time.Now().Add(-time.Hour).UTC()
@@ -259,6 +297,7 @@ func TestAnMP3MadeAgainReplacesTheOneUploadedBefore(t *testing.T) {
 
 func TestATalkAlreadyOnTheSiteNeedsConfirming(t *testing.T) {
 	f := newPublishFixture(t)
+	f.fillTalk()
 	f.site.duplicate = true
 	session := f.publish(`{}`)
 	if session.Publish.Status != "failed" || !strings.Contains(session.Publish.Error, `"By hand"`) || !session.Publish.Progress.Empty() {
@@ -274,6 +313,7 @@ func TestATalkAlreadyOnTheSiteNeedsConfirming(t *testing.T) {
 
 func TestPublishIsRefusedUntilItCanWork(t *testing.T) {
 	f := newPublishFixture(t)
+	f.fillTalk()
 	path := "/api/sessions/" + f.id + "/publish"
 
 	// A wrong password is reported with where it is kept.

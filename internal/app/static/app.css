@@ -82,10 +82,8 @@ select:disabled { color: var(--muted); cursor: not-allowed; }
 .export-status.running::before { display: inline-block; margin-right: .45rem; content: "●"; color: #8ce3b4; animation: export-pulse 1.2s ease-in-out infinite; }
 @keyframes export-pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .export-status.running::before { animation: none; } }
-.session-details { display: grid; grid-template-columns: minmax(15rem, 2fr) minmax(12rem, 1.4fr); gap: .55rem; align-items: end; flex: 1; }
-.session-details label { color: var(--muted); font-size: .8rem; }
-.session-details label input { margin-top: .25rem; color: var(--text); }
-.session-details #session-meta { grid-column: 1 / -1; }
+.session-heading { flex: 1; min-width: 0; }
+.session-heading h2 { margin: 0 0 .35rem; font-size: 1.25rem; overflow-wrap: anywhere; }
 .session-notice { margin: .9rem 0 0; padding: .6rem .7rem; border: 1px solid #8a6534; border-radius: .55rem; background: #2b2112; color: #f2d6a7; font-size: .85rem; line-height: 1.4; }
 .session-notice:empty { display: none; }
 audio { width: 100%; margin: 1rem 0; }
@@ -141,7 +139,6 @@ audio { width: 100%; margin: 1rem 0; }
   .session-list { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .main-header { flex-direction: column; }
   .main-header .actions { width: 100%; }
-  .session-details { width: 100%; grid-template-columns: 1fr 1fr; }
   .segment-table { display: block; overflow-x: auto; }
   .section-head { align-items: flex-start; gap: .6rem; }
   .section-actions { align-items: flex-end; flex-direction: column; }
@@ -153,4 +150,40 @@ audio { width: 100%; margin: 1rem 0; }
   .waveform-viewport { height: 145px; }
   .add-marker { grid-template-columns: 1fr; }
   .export-options { flex-wrap: wrap; }
+}
+
+/* Upload page */
+.upload-page { padding: 1.3rem; max-width: 760px; margin: 0 auto; }
+.upload-page h1 { margin: .2rem 0 .8rem; font-size: 1.35rem; }
+.upload-page a { color: var(--accent); }
+.upload-source { margin: .4rem 0; font-size: .85rem; line-height: 1.4; }
+.upload-source:empty { display: none; }
+.talk-form { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: .9rem; }
+.talk-form label, .talk-form legend { color: var(--muted); font-size: .8rem; }
+.talk-form label input, .talk-form label select { margin-top: .25rem; color: var(--text); }
+.talk-form input, .talk-form select { font-size: .95rem; }
+.talk-form .wide { grid-column: 1 / -1; }
+.talk-form fieldset { margin: 0; padding: 0; border: 0; }
+.talk-form .check { display: flex; align-items: center; gap: .5rem; color: var(--text); font-size: .9rem; }
+.talk-form .check input { width: auto; margin: 0; transform: scale(1.2); }
+.speaker-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; margin-top: .3rem; }
+.speaker-row .remove-speaker { background: transparent; color: var(--muted); }
+.name-check { margin-top: .3rem; font-size: .82rem; color: #f2d6a7; line-height: 1.4; }
+.name-check:empty { display: none; }
+.name-check label { display: inline-flex; align-items: center; gap: .35rem; margin-left: .3rem; color: var(--text); font-size: .82rem; }
+.name-check label input { width: auto; margin: 0; }
+.name-check .suggestion { margin-left: .3rem; padding: .1rem .45rem; font-size: .8rem; }
+.field-note { margin: .3rem 0 0; font-size: .82rem; line-height: 1.4; }
+.field-note:empty { display: none; }
+.field-note.bad { color: #ff9b85; }
+.check-list { margin: .8rem 0 0; padding-left: 1.2rem; font-size: .88rem; line-height: 1.45; }
+.check-list:empty { display: none; }
+.check-list.problems { color: #ff9b85; }
+.check-list.warnings { color: #f2d6a7; }
+.publish-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1rem 0 .6rem; }
+.publish-actions .link-button { color: var(--muted); font-size: .85rem; }
+.export-status.done { padding: .6rem .7rem; border: 1px solid var(--accent); border-radius: .55rem; color: var(--text); }
+.export-status.failed { color: #ff9b85; }
+@media (max-width: 760px) {
+  .talk-form { grid-template-columns: 1fr; }
 }

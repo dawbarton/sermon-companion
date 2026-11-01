@@ -1,12 +1,12 @@
 "use strict";
 const {api, formatTime, parseTime, suggestSegmentRange, splittableSegmentAt} = window.SC;
 const elementIDs = [
-  "session-list", "empty", "detail", "session-details", "session-title", "church",
+  "session-list", "empty", "detail", "session-heading",
   "session-meta", "session-notice", "audio", "open-folder",
   "waveform-viewport", "waveform-canvas", "segment-overlay", "playhead",
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
-  "marker-time", "export", "download", "export-status", "error",
+  "marker-time", "export", "download", "upload", "export-status", "error",
   "show-add-segment", "split-segment", "add-segment", "cancel-add-segment", "new-segment-label",
   "new-segment-start", "new-segment-end", "removed-panel", "gap-seconds",
   "removed-count", "removed-segments", "open-config", "config-status"
@@ -15,6 +15,9 @@ const elements = Object.fromEntries(elementIDs.map(id => [id, document.getElemen
 
 let current = null;
 let sessions = [];
+// Whether the settings connect this computer to the church website, in which
+// case the MP3 is uploaded rather than downloaded.
+let uploading = false;
 let playing = null;
 let waveform = emptyWaveform();
 let dragState = null;
@@ -45,23 +48,30 @@ async function loadSessions() {
   try {
     sessions = await api("/api/sessions");
     elements["session-list"].replaceChildren(...sessions.map(sessionCard));
-    if (!current && sessions.length) await selectSession(sessions[0].id);
+    if (!current && sessions.length) {
+      // The upload page links back to the service it was for.
+      const wanted = new URLSearchParams(location.search).get("session");
+      await selectSession(sessions.find(session => session.id === wanted)?.id || sessions[0].id);
+    }
   } catch (error) { showError(error); }
 }
+
+// A service is called by its talk's title once the upload page has one.
+function displayTitle(session) { return session?.talk?.title || session?.title || ""; }
 
 function sessionCard(session) {
   const card = document.createElement("div");
   card.className = `session-card${current?.id === session.id ? " selected" : ""}`;
   const open = document.createElement("button");
   open.className = "session-open";
-  const title = document.createElement("strong"); title.textContent = session.title;
+  const title = document.createElement("strong"); title.textContent = displayTitle(session);
   const meta = document.createElement("small"); meta.textContent = `${new Date(session.startedAt).toLocaleDateString()} · ${session.status}`;
   open.append(title, meta);
   open.addEventListener("click", () => selectSession(session.id));
   const remove = document.createElement("button");
   remove.className = "session-delete";
   remove.textContent = "✕";
-  remove.title = `Delete ${session.title}`;
+  remove.title = `Delete ${displayTitle(session)}`;
   remove.setAttribute("aria-label", remove.title);
   remove.addEventListener("click", () => deleteSession(session));
   card.append(open, remove);
@@ -73,7 +83,7 @@ function sessionCard(session) {
 // and the answer is not remembered for the next one.
 async function deleteSession(session) {
   const when = new Date(session.startedAt).toLocaleDateString();
-  if (!confirm(`Delete "${session.title}" from ${when}? Its recording and MP3s are removed from this computer and cannot be recovered.`)) return;
+  if (!confirm(`Delete "${displayTitle(session)}" from ${when}? Its recording and MP3s are removed from this computer and cannot be recovered.`)) return;
   try {
     const revision = current?.id === session.id ? current.revision : session.revision;
     await api(`/api/sessions/${session.id}`, {method: "DELETE", headers: {"If-Match": `"${revision}"`}});
@@ -179,10 +189,7 @@ function render() {
   elements.empty.classList.toggle("hidden", !!current);
   elements.detail.classList.toggle("hidden", !current);
   if (!current) return;
-  if (!elements["session-details"].contains(document.activeElement)) {
-    elements["session-title"].value = current.title;
-    elements.church.value = current.church || "Church";
-  }
+  elements["session-heading"].textContent = displayTitle(current);
   renderSessionMeta();
   const wanted = audioSourceFor(current);
   if (wanted !== audioSource) {
@@ -198,22 +205,22 @@ function render() {
   renderWaveform();
   const exp = current.export;
   elements["export-status"].textContent = exp ? exp.status === "running" ? "Creating MP3… This can take a few minutes." : exp.status === "failed" ? `Export failed: ${exp.error}` : exp.status === "stale" ? "Service details or segments changed since this MP3 was created. Create a new MP3." : "MP3 ready." : "";
+  if (current.publish?.progress?.finished) elements["export-status"].textContent += " It is on the website.";
   if (document.activeElement !== elements["gap-seconds"]) elements["gap-seconds"].value = gapSeconds(current);
   const exporting = isExporting(current);
   elements["export-status"].classList.toggle("running", exporting);
   elements["gap-seconds"].disabled = exporting;
   elements.export.disabled = isRecording(current) || exporting;
   elements.export.textContent = exporting ? "Creating MP3…" : "Create MP3";
-  // The API refuses a change while an MP3 is being made, so the boxes say so
-  // rather than accepting an edit that will bounce.
-  elements["session-title"].disabled = exporting;
-  elements.church.disabled = exporting;
   elements["show-add-segment"].disabled = exporting;
   renderSplitControl();
   if (exporting) elements["add-segment"].classList.add("hidden");
   for (const control of elements["add-marker"].querySelectorAll("input, button")) control.disabled = exporting;
-  elements.download.classList.toggle("hidden", exp?.status !== "completed");
+  elements.download.classList.toggle("hidden", uploading || exp?.status !== "completed");
   if (exp?.status === "completed") elements.download.href = `/api/sessions/${current.id}/export-file`;
+  elements.upload.classList.toggle("hidden", !uploading);
+  elements.upload.disabled = isRecording(current);
+  elements.upload.textContent = current.publish?.progress?.finished ? "View upload" : "Upload MP3";
 }
 
 function renderSegmentRows() {
@@ -628,62 +635,6 @@ elements["add-marker"].addEventListener("submit", async event => {
   } catch (error) { showError(error); }
 });
 
-// The title and church save themselves when the box is left or Enter is
-// pressed, like every other field on this page. The form stays only so that
-// Enter does not reload the page.
-elements["session-details"].addEventListener("submit", event => {
-  event.preventDefault();
-  commitSessionDetails();
-});
-
-for (const field of ["session-title", "church"]) {
-  // Leaving the box commits it, as it does for a segment's times.
-  elements[field].addEventListener("change", () => saveSessionDetails());
-  // Enter has to be handled here rather than left to the form. With the save
-  // button gone the form has no submit button and two text boxes, and a browser
-  // submits such a form implicitly only when it holds a single field.
-  elements[field].addEventListener("keydown", event => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    commitSessionDetails();
-  });
-}
-
-// Leaving the box raises the change event that saves it, but only where the
-// browser saw the value edited, so the save is also asked for directly.
-function commitSessionDetails() {
-  document.activeElement?.blur();
-  saveSessionDetails();
-}
-
-// Guards against the blur above and the direct call both sending the same
-// change, which would write two entries into the session's journal.
-let savingDetails = false;
-
-async function saveSessionDetails() {
-  const title = elements["session-title"].value.trim();
-  const church = elements.church.value.trim();
-  if (savingDetails || (title === current.title && church === current.church)) return;
-  savingDetails = true;
-  try {
-    await mutateSession(`/api/sessions/${current.id}`, {method: "PATCH", body: JSON.stringify({title, church})});
-    elements.error.textContent = "";
-    await loadSessions();
-  } catch (error) {
-    // Both boxes name the MP3, so a rejected change goes back to the value the
-    // next export would actually use rather than being left as typed. This is
-    // done here rather than left to render, which deliberately does not touch a
-    // field being edited: moving from one of these boxes to the other keeps the
-    // focus inside the form.
-    showError(error);
-    elements["session-title"].value = current.title;
-    elements.church.value = current.church || "Church";
-  } finally {
-    savingDetails = false;
-  }
-  render();
-}
-
 // The gap is only used when the MP3 is made, so it saves itself like the
 // segment rows rather than waiting for a button.
 elements["gap-seconds"].addEventListener("change", async () => {
@@ -747,8 +698,21 @@ elements["add-segment"].addEventListener("submit", async event => {
 });
 
 elements.export.addEventListener("click", async () => {
-  try { await saveSessionDetails(); await api(`/api/sessions/${current.id}/export`, {method: "POST", body: "{}"}); current.export = {status: "running"}; render(); }
+  try { await api(`/api/sessions/${current.id}/export`, {method: "POST", body: "{}"}); current.export = {status: "running"}; render(); }
   catch (error) { showError(error); }
+});
+
+// Upload MP3 starts making the MP3 if there is no current one, and opens the
+// upload page at once, so that the talk's details are filled in while it is
+// made. None of them is in the MP3, so the order does not matter.
+elements.upload.addEventListener("click", async () => {
+  const status = current.export?.status;
+  try {
+    if (status !== "completed" && status !== "running" && !current.publish?.progress?.finished) {
+      await api(`/api/sessions/${current.id}/export`, {method: "POST", body: "{}"});
+    }
+    location.href = `/upload?session=${encodeURIComponent(current.id)}`;
+  } catch (error) { showError(error); }
 });
 
 elements["open-folder"].addEventListener("click", async () => {
@@ -771,6 +735,7 @@ elements["open-config"].addEventListener("click", async () => {
 
 function showError(error) { elements.error.textContent = error.message; }
 
+api("/api/publish").then(settings => { uploading = !!settings.enabled; render(); }).catch(() => {});
 loadSessions();
 setInterval(async () => {
   if (!current || (current.export?.status !== "running" && !isRecording(current))) return;

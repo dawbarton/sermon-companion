@@ -286,10 +286,7 @@ func sameTime(a, b *time.Time) bool {
 // explainPublishError turns a failure into what the operator should be told,
 // with what to do about it.
 func explainPublishError(ctx context.Context, err error) string {
-	message := err.Error()
-	if message != "" {
-		message = strings.ToUpper(message[:1]) + message[1:]
-	}
+	message := capitalise(err.Error())
 	if !strings.HasSuffix(message, ".") {
 		message += "."
 	}

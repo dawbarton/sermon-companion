@@ -21,12 +21,11 @@
       <div id="empty" class="empty">Choose a service to review its markers and create an MP3.</div>
       <div id="detail" class="hidden">
         <div class="main-header">
-          <form id="session-details" class="session-details">
-            <label>Service title <input id="session-title" required></label>
-            <label>Church <input id="church" required></label>
+          <div class="session-heading">
+            <h2 id="session-heading"></h2>
             <div id="session-meta" class="muted"></div>
-          </form>
-          <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><p id="export-status" class="export-status" role="status" aria-live="polite"></p><a id="download" class="hidden"><button>Download MP3</button></a></div>
+          </div>
+          <div class="actions"><button id="open-folder">Open MP3 folder</button><button id="export" class="primary">Create MP3</button><p id="export-status" class="export-status" role="status" aria-live="polite"></p><a id="download" class="hidden"><button>Download MP3</button></a><button id="upload" class="primary hidden">Upload MP3</button></div>
         </div>
         <p id="session-notice" class="session-notice" role="status"></p>
         <audio id="audio" controls preload="metadata"></audio>

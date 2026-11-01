@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload to the website · Sermon Companion</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <main class="upload-page">
+    <p><a id="back" href="/">← Back to the recording</a></p>
+    <h1>Upload to the website</h1>
+    <p id="mp3-status" class="export-status" role="status" aria-live="polite"></p>
+    <p id="source" class="muted upload-source"></p>
+    <p id="lists-status" class="muted upload-source"></p>
+
+    <form id="talk" class="talk-form card" autocomplete="off">
+      <label class="wide">Title <input id="title" maxlength="200"></label>
+      <label>Date <input id="date" type="date"></label>
+      <label>Church <select id="church"></select></label>
+
+      <fieldset class="wide speakers">
+        <legend>Speakers</legend>
+        <div id="speaker-rows"></div>
+        <button id="add-speaker" type="button" class="link-button">Add another speaker</button>
+      </fieldset>
+
+      <div class="wide name-field">
+        <label>Series <input id="series" list="series-names" placeholder="None"></label>
+        <div id="series-check" class="name-check"></div>
+      </div>
+
+      <div class="wide">
+        <label>Bible passage <input id="passage" placeholder="Matthew 6:9-13"></label>
+        <p id="books" class="field-note muted"></p>
+      </div>
+
+      <div class="wide">
+        <label>Image <input id="image" placeholder="Leave empty to use the series' image; for a new series, paste a link to its image"></label>
+        <p id="image-note" class="field-note muted"></p>
+      </div>
+
+      <div class="wide">
+        <label>YouTube video <input id="video" type="url" placeholder="https://www.youtube.com/watch?v=…"></label>
+        <p id="video-note" class="field-note muted"></p>
+      </div>
+
+      <label class="wide check"><input id="podcast" type="checkbox"> Include in the podcast feed</label>
+    </form>
+    <datalist id="speaker-names"></datalist>
+    <datalist id="series-names"></datalist>
+
+    <section class="upload-checks" aria-live="polite">
+      <ul id="problems" class="check-list problems"></ul>
+      <ul id="warnings" class="check-list warnings"></ul>
+    </section>
+
+    <div class="publish-actions">
+      <button id="publish" class="primary" type="button" disabled>Publish</button>
+      <button id="refill" type="button" class="link-button">Fill in again from the programme</button>
+      <button id="refresh" type="button" class="link-button">Refresh the website's lists</button>
+    </div>
+    <p id="publish-status" class="export-status" role="status" aria-live="polite"></p>
+    <p id="error" class="error"></p>
+  </main>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/upload.js"></script>
+</body>
+</html>
