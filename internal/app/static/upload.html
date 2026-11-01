@@ -17,12 +17,12 @@
     <form id="talk" class="talk-form card" autocomplete="off">
       <label class="wide">Title <input id="title" maxlength="200"></label>
       <label>Date <input id="date" type="date"></label>
-      <label>Church <select id="church"></select></label>
+      <label>Church <span class="select-wrap"><select id="church"></select></span></label>
 
       <fieldset class="wide speakers">
         <legend>Speakers</legend>
         <div id="speaker-rows"></div>
-        <button id="add-speaker" type="button" class="link-button">Add another speaker</button>
+        <button id="add-speaker" type="button" class="field-action">+ Add another speaker</button>
       </fieldset>
 
       <div class="wide name-field">

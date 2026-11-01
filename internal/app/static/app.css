@@ -161,19 +161,39 @@ audio { width: 100%; margin: 1rem 0; }
 .talk-form { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: .9rem; }
 .talk-form label, .talk-form legend { color: var(--muted); font-size: .8rem; }
 .talk-form label input, .talk-form label select { margin-top: .25rem; color: var(--text); }
-.talk-form input, .talk-form select { font-size: .95rem; }
+/* Text boxes, the date, and the church list share one height, whatever each
+   browser's own control would otherwise be. */
+.talk-form input:not([type="checkbox"]), .talk-form select { height: 2.6rem; padding: 0 .6rem; font-size: .95rem; line-height: normal; }
+/* Safari draws a list in its own fixed height and shows a date's digits in a
+   grey of its own, so the list is drawn plainly with an arrow of ours, and the
+   date's parts are given the text colour. */
+.talk-form select { appearance: none; -webkit-appearance: none; padding-right: 2rem; }
+.talk-form .select-wrap { position: relative; display: block; }
+.talk-form .select-wrap::after { content: "▾"; position: absolute; right: .75rem; top: 1.55rem; transform: translateY(-50%); color: var(--muted); font-size: 1rem; line-height: 1; pointer-events: none; }
+.talk-form input[type="date"],
+.talk-form input[type="date"]::-webkit-datetime-edit,
+.talk-form input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.talk-form input[type="date"]::-webkit-datetime-edit-day-field,
+.talk-form input[type="date"]::-webkit-datetime-edit-month-field,
+.talk-form input[type="date"]::-webkit-datetime-edit-year-field,
+.talk-form input[type="date"]::-webkit-datetime-edit-text { color: var(--text); }
 .talk-form .wide { grid-column: 1 / -1; }
 .talk-form fieldset { margin: 0; padding: 0; border: 0; }
 .talk-form .check { display: flex; align-items: center; gap: .5rem; color: var(--text); font-size: .9rem; }
 .talk-form .check input { width: auto; margin: 0; transform: scale(1.2); }
 .speaker-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; margin-top: .3rem; }
 .speaker-row .remove-speaker { background: transparent; color: var(--muted); }
-.name-check { margin-top: .3rem; font-size: .82rem; color: #f2d6a7; line-height: 1.4; }
+/* A small action under a box, sized and aligned like the remarks. */
+.field-action { display: block; margin: .3rem 0 0 auto; padding: .15rem 0; background: transparent; color: var(--accent); font-size: .78rem; }
+.field-action:hover { text-decoration: underline; filter: none; }
+/* Remarks under a box are right-aligned and smaller than the headings, so that
+   they read as notes on the box above rather than as the next field's heading. */
+.name-check { margin-top: .3rem; font-size: .78rem; color: #f2d6a7; line-height: 1.4; text-align: right; }
 .name-check:empty { display: none; }
-.name-check label { display: inline-flex; align-items: center; gap: .35rem; margin-left: .3rem; color: var(--text); font-size: .82rem; }
+.name-check label { display: inline-flex; align-items: center; gap: .35rem; margin-left: .3rem; color: var(--text); font-size: .78rem; }
 .name-check label input { width: auto; margin: 0; }
-.name-check .suggestion { margin-left: .3rem; padding: .1rem .45rem; font-size: .8rem; }
-.field-note { margin: .3rem 0 0; font-size: .82rem; line-height: 1.4; }
+.name-check .suggestion { margin-left: .3rem; padding: .1rem .45rem; font-size: .78rem; }
+.field-note { margin: .3rem 0 0; font-size: .78rem; line-height: 1.4; text-align: right; }
 .field-note:empty { display: none; }
 .field-note.bad { color: #ff9b85; }
 .check-list { margin: .8rem 0 0; padding-left: 1.2rem; font-size: .88rem; line-height: 1.45; }
