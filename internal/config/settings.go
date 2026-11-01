@@ -2,9 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/dawbarton/sermon-companion/internal/atomicfile"
@@ -46,6 +48,15 @@ func LoadSettings(path string) (*Settings, error) {
 // for in-memory settings.
 func (s *Settings) Path() string { return s.path }
 
+// PasswordPath is the file the website's application password is read from,
+// beside config.json, or an empty string for in-memory settings.
+func (s *Settings) PasswordPath() string {
+	if s.path == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.path), PasswordFileName)
+}
+
 // SetRuntimeOverrides records values the application resolved for itself at
 // start-up, such as an FFmpeg found beside the executable. They apply to the
 // running application but are never written to config.json.
@@ -62,6 +73,30 @@ func (s *Settings) refreshLive() {
 	if s.overrides != nil {
 		s.overrides(&s.live)
 	}
+}
+
+// Password reads the website's application password. It is read when it is
+// needed rather than at start-up, so that it can be put in place, or replaced,
+// without restarting, and so that it is held in memory no longer than an upload.
+func (s *Settings) Password() (string, error) {
+	path := s.PasswordPath()
+	if path == "" {
+		return "", errors.New("there is no settings folder to read the website password from")
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("the website password has not been set up: put it in %s", path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("could not read the website password from %s: %w", path, err)
+	}
+	// WordPress shows an application password in groups of four separated by
+	// spaces, and ignores the spaces when checking it.
+	password := strings.Join(strings.Fields(string(data)), "")
+	if password == "" {
+		return "", fmt.Errorf("the website password file %s is empty", path)
+	}
+	return password, nil
 }
 
 // Get returns an independent copy of the current configuration, so a caller
@@ -126,6 +161,11 @@ func (c Config) clone() Config {
 	out.Master.GapSeconds = clonePointer(c.Master.GapSeconds)
 	out.Master.Mono = clonePointer(c.Master.Mono)
 	out.Master.MP3Quality = clonePointer(c.Master.MP3Quality)
+	if c.Publish != nil {
+		publish := *c.Publish
+		publish.Podcast = clonePointer(c.Publish.Podcast)
+		out.Publish = &publish
+	}
 	return out
 }
 

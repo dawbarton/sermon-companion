@@ -8,8 +8,10 @@ import (
 	"io"
 	"math"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,7 +31,62 @@ type Config struct {
 	// Zero or a negative value keeps every recording indefinitely. Pointers
 	// distinguish an omitted setting from a deliberate zero.
 	RetentionDays *int `json:"retentionDays"`
+	// Publish connects the review page to the church website. Without it the
+	// application sends nothing anywhere and the upload button is not shown.
+	Publish *PublishConfig `json:"publish,omitempty"`
 }
+
+// PublishConfig says where talks are uploaded and where their details come
+// from. The application password is deliberately not here: it is read from
+// PasswordFileName beside config.json, so the settings file can be opened and
+// shown on screen without showing the secret.
+type PublishConfig struct {
+	// Site is the WordPress site's address, which must use HTTPS.
+	Site string `json:"site"`
+	// User is the WordPress account the application password belongs to.
+	User string `json:"user"`
+	// Status is what an upload is published as: "publish", "private", or
+	// "draft". A private or draft upload is for testing.
+	Status string `json:"status,omitempty"`
+	// ResourceType is the site's name for the kind of resource a talk is.
+	ResourceType string `json:"resourceType,omitempty"`
+	// Podcast is whether a talk goes into the site's podcast feed unless the
+	// operator says otherwise. A pointer distinguishes an omitted setting from a
+	// deliberate false.
+	Podcast *bool `json:"podcast,omitempty"`
+	// Programme is the preaching programme spreadsheet the talk details are
+	// filled in from, an .xlsx or .csv file. It may be empty.
+	Programme string `json:"programme,omitempty"`
+	// ProgrammeSheet names the worksheet to read; the first is used if empty.
+	ProgrammeSheet string `json:"programmeSheet,omitempty"`
+	// YouTubeChannel is the channel ID, beginning UC, whose latest video is
+	// offered as the talk's video. It may be empty.
+	YouTubeChannel string `json:"youtubeChannel,omitempty"`
+}
+
+// PasswordFileName is the file beside config.json holding the WordPress
+// application password.
+const PasswordFileName = "website-password.txt"
+
+// PublishStatus is the status an upload is given.
+func (p PublishConfig) PublishStatus() string {
+	if strings.TrimSpace(p.Status) == "" {
+		return "publish"
+	}
+	return strings.ToLower(strings.TrimSpace(p.Status))
+}
+
+// Type is the site's name for the kind of resource a talk is filed as.
+func (p PublishConfig) Type() string {
+	if strings.TrimSpace(p.ResourceType) == "" {
+		return "Sermon"
+	}
+	return strings.TrimSpace(p.ResourceType)
+}
+
+// PodcastByDefault reports whether a talk goes into the podcast feed unless
+// the operator says otherwise.
+func (p PublishConfig) PodcastByDefault() bool { return p.Podcast == nil || *p.Podcast }
 
 type CaptureConfig struct {
 	Backend    string   `json:"backend"`
@@ -264,8 +321,43 @@ func validateConfig(c Config) error {
 	if c.RetentionDays != nil && *c.RetentionDays > maximumRetentionDays {
 		return fmt.Errorf("retentionDays must not exceed %d", maximumRetentionDays)
 	}
+	if c.Publish != nil {
+		if err := validatePublish(*c.Publish); err != nil {
+			return err
+		}
+	}
 	return nil
 }
+
+func validatePublish(p PublishConfig) error {
+	site, err := url.Parse(strings.TrimSpace(p.Site))
+	if err != nil || site.Host == "" || site.Scheme != "https" {
+		// The application password travels with every request, and WordPress
+		// refuses one over plain HTTP anyway.
+		return errors.New("publish.site must be the website's address, beginning https://")
+	}
+	if strings.TrimSpace(p.User) == "" {
+		return errors.New("publish.user is required")
+	}
+	switch p.PublishStatus() {
+	case "publish", "private", "draft":
+	default:
+		return fmt.Errorf("publish.status must be %q, %q, or %q", "publish", "private", "draft")
+	}
+	if p.Programme != "" {
+		switch strings.ToLower(filepath.Ext(p.Programme)) {
+		case ".xlsx", ".csv":
+		default:
+			return errors.New("publish.programme must be an .xlsx or .csv file")
+		}
+	}
+	if channel := strings.TrimSpace(p.YouTubeChannel); channel != "" && !youTubeChannelPattern.MatchString(channel) {
+		return errors.New("publish.youtubeChannel must be a channel ID, beginning UC and 24 characters long, not a handle such as @church")
+	}
+	return nil
+}
+
+var youTubeChannelPattern = regexp.MustCompile(`^UC[0-9A-Za-z_-]{22}$`)
 
 func finiteBetween(value, minimum, maximum float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= minimum && value <= maximum
