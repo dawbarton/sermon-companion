@@ -212,6 +212,9 @@ function render() {
   elements["gap-seconds"].disabled = exporting;
   elements.export.disabled = isRecording(current) || exporting;
   elements.export.textContent = exporting ? "Creating MP3…" : "Create MP3";
+  // Where the MP3 is uploaded, Upload MP3 is the one action to look for, so
+  // Create MP3 is drawn like Open MP3 folder.
+  elements.export.classList.toggle("primary", !uploading);
   elements["show-add-segment"].disabled = exporting;
   renderSplitControl();
   if (exporting) elements["add-segment"].classList.add("hidden");
