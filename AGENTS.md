@@ -55,18 +55,31 @@ changing user-visible behaviour or deployment.
 - Browser times are displayed to tenths of a second. Snap values within 0.051 s
   of a neighbouring boundary before strict overlap validation so an unchanged,
   rounded value remains saveable.
-- Any metadata or segment edit makes an existing export stale.
+- Any segment edit, and any change to what goes into the MP3 (the service
+  title and church written into it, and the gap between segments), makes an
+  existing export stale. The talk's website details in the session's `talk`
+  record are not in the MP3 and never do: they are filled in on the upload page
+  while the MP3 is being made, so an export checks before publishing that its
+  own inputs are unchanged, not that the session's revision is.
 - Master each included segment separately with two-pass FFmpeg `loudnorm`, then
   concatenate the resulting lossless files and encode MP3 once. Do not add
   implicit crossfades.
 - Publish exports atomically. Re-exporting retains the preceding MP3 beneath
   `exports/previous`.
 - The current MP3 name is `YYYY-MM-DD-Church-Name.mp3`, using the session's
-  editable church field normalised to a safe, space-free filename. A new session
-  inherits its church from configuration.
+  church normalised to a safe, space-free filename. A new session takes its
+  church from configuration, and the review page no longer edits it. The file
+  uploaded to the website is named the same way from the talk's own date and
+  church, which the operator may have corrected on the upload page.
 - Keep the server loopback-only by default and suitable for OBS's embedded
   Chromium browser. There is deliberately no cloud service or OBS WebSocket
-  dependency.
+  dependency. The only outgoing connections are to the configured church
+  website and the church channel's public YouTube feed, and only when
+  `config.json` has a `publish` section; without it nothing is sent anywhere.
+- A session's `publish` record is the only record of what an upload created on
+  the website, and it is how a failed upload resumes without creating anything
+  twice. Never clear or rewrite it except through the upload itself, and keep
+  recording each ID the site gives in the journal as soon as it is given.
 - A capture-device selection is refused unless that device is present, so
   `config.json` can never come to name a device that will fail to open during a
   service. The interface's test for a device that has gone missing must mirror
@@ -107,7 +120,9 @@ changing user-visible behaviour or deployment.
   information on an existing control over adding a line.
 - The review page saves as it goes. A field or control there must apply its own
   change rather than waiting for a save button, and must show the value the next
-  MP3 would actually use if a change is rejected.
+  MP3 would actually use if a change is rejected. The upload page does the same
+  for the talk's details, showing what would be published, and sends its saves
+  one at a time so that each carries the revision the previous one produced.
 
 ## Architecture and important files
 
@@ -148,14 +163,19 @@ from the log page, and from `--version` when its output is redirected.
   than part of the application, and it never writes to a site. See
   `docs/SERMON-UPLOAD-DESIGN.md` for the design it serves and its open questions.
 - `internal/publish`: the WordPress client and upload sequence for automatic
-  sermon upload: term lists and name matching, Bible passage parsing,
-  read-only session loading, and a resumable draft, upload, and publish
-  sequence. `cmd/sermon-publish` is its standalone command, used until the
-  review page gains an upload button. Uploads to Emmanuel Bristol depend on a
+  sermon upload: term lists and name matching, Bible passage parsing, the
+  review of a talk against the site's lists, the site and YouTube lookups that
+  fill a talk in, read-only session loading, and a resumable draft, upload, and
+  publish sequence. The application's upload page (`internal/app/publish.go`
+  and `upload.go`) and the standalone `cmd/sermon-publish` both use it. Uploads to Emmanuel Bristol depend on a
   WPCode snippet on the site that makes application passwords work alongside
   Defender; if it is removed, every authenticated request is answered
   `rest_not_logged_in`, which says nothing about the snippet. See
   `docs/SERMON-UPLOAD-DESIGN.md`.
+- `internal/programme`: the preaching programme spreadsheet, `.xlsx` read
+  with the standard library or `.csv` in either of Excel's encodings, with
+  columns found by heading and the row for a service chosen by date and
+  service time.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
 - `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows
@@ -167,20 +187,28 @@ waveform, and exports. The platform defaults are `%LOCALAPPDATA%\Sermon
 Companion` on Windows and `~/Library/Application Support/Sermon Companion` on
 macOS. Development and browser-test data should go under the ignored `work/`
 directory. `work/publish-state/` is the exception to treating `work/` as
-scratch: it records what each upload created on the website, which is how a
-failed upload resumes and how `sermon-publish -delete` finds what to remove. It
-cannot be regenerated, so do not clear it.
+scratch: it records what each `cmd/sermon-publish` upload created on the
+website, which is how a failed upload resumes and how `sermon-publish -delete`
+finds what to remove. It cannot be regenerated, so do not clear it. The
+application itself keeps that record in each session's `publish` field and
+journal instead. Beside the sessions, `website-lists.json` is a copy of the
+site's lists, read again hourly, and can be deleted freely.
 
 The default local pages are:
 
 - Manager: `http://127.0.0.1:8765/`
 - OBS dock: `http://127.0.0.1:8765/dock`
 - Log: `http://127.0.0.1:8765/log`
+- Upload: `http://127.0.0.1:8765/upload?session=<id>`, reached from the review
+  page's Upload MP3
 
 The application log sits beside the sessions, under `logs/`.
 
 The principal configuration fields are `listen`, `ffmpeg`, `ffprobe`, `church`,
-`capture`, `presets`, and `mastering`. The application creates `config.json` on
+`capture`, `presets`, `mastering`, `retentionDays`, and the optional `publish`.
+The website's application password is never in `config.json`: it is read, when
+needed, from `website-password.txt` beside it, and must never be logged,
+returned by the API, or committed. The application creates `config.json` on
 first launch and rewrites it when the operator chooses a capture device, so a
 change to the file's shape has to survive being written back as well as read. Do not add a hand-maintained sample configuration that can drift
 from `internal/config/config.go` without a specific reason and a consistency
@@ -198,6 +226,7 @@ go vet ./...
 node --check internal/app/static/review.js
 node --check internal/app/static/dock.js
 node --check internal/app/static/log.js
+node --check internal/app/static/upload.js
 git diff --check
 ```
 
