@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/dawbarton/sermon-companion/internal/store"
@@ -83,8 +84,13 @@ func ExportOf(session store.Session, dir string) (*Export, error) {
 		return nil, fmt.Errorf("the MP3's state is %q, which this publisher does not recognise", export.Status)
 	}
 
+	// The session records its MP3 relative to its own folder, with forward
+	// slashes. A path rooted at a slash or naming a drive is refused on every
+	// platform: Windows does not count "/etc/passwd" as absolute, and would
+	// otherwise quietly look for it inside the session folder.
 	relative := filepath.Clean(filepath.FromSlash(export.Output))
-	if export.Output == "" || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	rooted := strings.HasPrefix(export.Output, "/") || strings.HasPrefix(export.Output, `\`) || filepath.VolumeName(relative) != "" || driveLetter.MatchString(export.Output)
+	if export.Output == "" || rooted || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("the session names its MP3 as %q, which is not inside the session folder", export.Output)
 	}
 	path := filepath.Join(dir, relative)
@@ -97,3 +103,7 @@ func ExportOf(session store.Session, dir string) (*Export, error) {
 	}
 	return &Export{Session: session, Dir: dir, Path: path, Name: filepath.Base(path), Size: info.Size()}, nil
 }
+
+// driveLetter matches a Windows drive at the start of a path, such as C:,
+// which only Windows itself would otherwise recognise.
+var driveLetter = regexp.MustCompile(`^[A-Za-z]:`)

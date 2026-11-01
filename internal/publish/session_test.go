@@ -69,6 +69,8 @@ func TestLoadExportRefusesWhatItCannotBeSureOf(t *testing.T) {
 		{"wrong folder", func(s *store.Session) { s.ID = "s_other" }, "belongs to session"},
 		{"escaping path", func(s *store.Session) { s.Export.Output = "../../secret.mp3" }, "not inside the session folder"},
 		{"absolute path", func(s *store.Session) { s.Export.Output = "/etc/passwd" }, "not inside the session folder"},
+		{"backslash root", func(s *store.Session) { s.Export.Output = `\Windows\win.ini` }, "not inside the session folder"},
+		{"drive path", func(s *store.Session) { s.Export.Output = "C:/Windows/win.ini" }, "not inside the session folder"},
 		{"missing file", func(s *store.Session) { s.Export.Output = "exports/gone.mp3" }, "cannot be read"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

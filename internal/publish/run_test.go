@@ -106,8 +106,8 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 	draft := sender.calls[1].payload
 	acf := draft["acf"].(map[string]any)
 	for field, wantValue := range map[string]any{
-		"status":   "draft",
-		"date_gmt": "2026-09-13T09:30:00",
+		"status":         "draft",
+		"date_gmt":       "2026-09-13T09:30:00",
 		"title":          plan.Title,
 		"featured_media": 15668.0,
 	} {
