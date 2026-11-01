@@ -44,25 +44,50 @@ async function prefill(replace) {
   return api(`/api/sessions/${sessionID}/talk/prefill`, {method: "POST", body: JSON.stringify({replace}), headers: {"If-Match": `"${session.revision}"`}});
 }
 
+// Only the latest check is shown, however the answers arrive.
+let checkToken = 0;
 async function refreshCheck(refresh) {
+  const token = ++checkToken;
   try {
-    check = await api(`/api/sessions/${sessionID}/talk/check${refresh ? "?refresh=1" : ""}`);
+    const result = await api(`/api/sessions/${sessionID}/talk/check${refresh ? "?refresh=1" : ""}`);
+    if (token !== checkToken) return;
+    check = result;
     renderCheck();
-  } catch (error) { showError(error); }
+  } catch (error) { if (token === checkToken) showError(error); }
 }
 
-// saveTalk sends one change. A rejected change puts back what is saved, which
-// is what would be published.
-async function saveTalk(change) {
+// saveTalk sends one change. Changes are sent one after another, since each
+// carries the revision the previous one produced: leaving one field for the
+// next while the first is still being saved would otherwise send a revision
+// already out of date. Each change sets only its own fields, so one refused
+// because the service changed elsewhere is sent again once against the
+// latest revision. A change still refused puts back what is saved, which is
+// what would be published.
+let saves = Promise.resolve();
+function saveTalk(change) {
+  saves = saves.then(() => sendTalk(change));
+  return saves;
+}
+
+async function sendTalk(change) {
+  const send = () => api(`/api/sessions/${sessionID}/talk`, {method: "PATCH", body: JSON.stringify(change), headers: {"If-Match": `"${session.revision}"`}});
   try {
-    session = await api(`/api/sessions/${sessionID}/talk`, {method: "PATCH", body: JSON.stringify(change), headers: {"If-Match": `"${session.revision}"`}});
+    try {
+      session = await send();
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      session = await api(`/api/sessions/${sessionID}`);
+      session = await send();
+    }
     el.error.textContent = "";
   } catch (error) {
     showError(error);
     try { session = await api(`/api/sessions/${sessionID}`); } catch (_) {}
   }
   render(true);
-  await refreshCheck(false);
+  // The check asks the website, which can take seconds; the next change is
+  // not kept waiting for it.
+  void refreshCheck(false);
 }
 
 function setValue(input, value, force) {
@@ -287,6 +312,9 @@ el.refill.addEventListener("click", async () => {
 el.refresh.addEventListener("click", () => refreshCheck(true));
 
 el.publish.addEventListener("click", async () => {
+  // A field left by pressing Publish is saved first, so that what is
+  // published is what is on the page.
+  await saves;
   const t = talk();
   let allowDuplicate = false;
   if (check?.duplicates?.length) {
