@@ -135,7 +135,7 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 	finish := sender.calls[3].payload
 	finishACF := finish["acf"].(map[string]any)
 	info := finishACF["resource_audio_info"].(map[string]any)
-	if finish["status"] != "publish" || finishACF["resource_audio"] != 15945.0 ||
+	if finish["status"] != "publish" || finishACF["resource_audio"] != 15945.0 || finishACF["resource_type"] != 270.0 ||
 		info["resource_audio_file_size"] != 9.0 || info["resource_audio_duration"] != "00:31:12" {
 		t.Errorf("finish = %v", finish)
 	}

@@ -182,11 +182,14 @@ func draftPayload(plan *Plan, speakerID int, seriesIDs []int) map[string]any {
 }
 
 // finishPayload points the Audio field at the uploaded file and sets the final
-// status in the same request.
+// status in the same request. ACF checks every acf object against the whole
+// field group's schema, so the required type has to be sent again here even
+// though the draft already has it; the site refused the request without it.
 func finishPayload(plan *Plan, mediaID int) map[string]any {
 	return map[string]any{
 		"status": plan.Status,
 		"acf": map[string]any{
+			fieldType:  plan.Type.ID,
 			fieldAudio: mediaID,
 			fieldAudioInfo: map[string]any{
 				fieldAudioSize: plan.Size,

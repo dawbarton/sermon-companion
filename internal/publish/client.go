@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 )
 
@@ -325,10 +326,24 @@ func classify(op string, status int, body []byte) *Error {
 	var reply struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Data    struct {
+			// Params names each rejected parameter and why, which is the
+			// only place WordPress says which field was wrong.
+			Params map[string]string `json:"params"`
+		} `json:"data"`
 	}
 	// A web server's own error page is not JSON; the status alone then speaks.
 	_ = json.Unmarshal(body, &reply)
-	refusal := &Error{Op: op, Status: status, Code: reply.Code, Message: html.UnescapeString(reply.Message)}
+	message := html.UnescapeString(reply.Message)
+	params := make([]string, 0, len(reply.Data.Params))
+	for name, reason := range reply.Data.Params {
+		params = append(params, name+": "+html.UnescapeString(reason))
+	}
+	sort.Strings(params)
+	if len(params) > 0 {
+		message = strings.TrimSuffix(message, ".") + ". " + strings.Join(params, "; ")
+	}
+	refusal := &Error{Op: op, Status: status, Code: reply.Code, Message: strings.TrimSpace(message)}
 
 	switch {
 	case credentialCodes[reply.Code]:

@@ -180,6 +180,17 @@ func TestWordPressMessageIsShownUnescaped(t *testing.T) {
 	}
 }
 
+func TestRejectedParametersAreNamed(t *testing.T) {
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		w.Write([]byte(`{"code":"rest_invalid_param","message":"Invalid parameter(s): acf","data":{"status":400,"params":{"acf":"resource_type is a required property of acf."}}}`))
+	})
+	_, err := client.Get(context.Background(), "finishing the talk", "/wp/v2/resource/500", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "acf: resource_type is a required property of acf.") {
+		t.Errorf("the rejected field and its reason should be shown: %v", err)
+	}
+}
+
 func TestRedirectAwayFromHTTPSIsRefused(t *testing.T) {
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://example.invalid/wp-json/wp/v2/users/me", http.StatusFound)
