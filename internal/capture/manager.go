@@ -75,6 +75,17 @@ func (m *Manager) RecoverInterrupted() error {
 				return updateErr
 			}
 		}
+		if session.Publish != nil && session.Publish.Status == "running" {
+			ended := time.Now().UTC()
+			_, updateErr := m.store.Update(session.ID, "publish.recovered_after_interruption", nil, func(s *store.Session) error {
+				s.Publish.Status, s.Publish.EndedAt = "failed", &ended
+				s.Publish.Error = "Sermon Companion stopped before the upload finished. Publish again to carry on from where it stopped."
+				return nil
+			})
+			if updateErr != nil {
+				return updateErr
+			}
+		}
 	}
 	return nil
 }

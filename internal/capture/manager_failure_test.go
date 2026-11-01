@@ -169,3 +169,33 @@ func corruptSnapshotSchema(t *testing.T, path string) []byte {
 	}
 	return original
 }
+
+func TestInterruptedUploadIsRecordedAsFailedAndKeepsItsProgress(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Uploading", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Update(session.ID, "test.uploading", nil, func(s *store.Session) error {
+		s.Status = "stopped"
+		s.Publish = &store.PublishInfo{Status: "running", Progress: store.PublishProgress{PostID: 500}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(config.NewSettings("", config.DefaultConfig()), sessions)
+	if err := manager.RecoverInterrupted(); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the upload created is kept, so that publishing again carries on.
+	if recovered.Publish.Status != "failed" || !strings.Contains(recovered.Publish.Error, "Publish again") || recovered.Publish.Progress.PostID != 500 {
+		t.Fatalf("recovered upload = %#v", recovered.Publish)
+	}
+}

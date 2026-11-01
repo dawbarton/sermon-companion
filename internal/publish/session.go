@@ -63,7 +63,12 @@ func LoadExport(dir string) (*Export, error) {
 	if strings.TrimSpace(session.Church) == "" {
 		return nil, errors.New("this session has no church, so there is no congregation to file the talk under")
 	}
+	return ExportOf(session, dir)
+}
 
+// ExportOf finds the current MP3 of a session already read, from the folder
+// it is in, refusing one that is missing, still being made, or out of date.
+func ExportOf(session store.Session, dir string) (*Export, error) {
 	export := session.Export
 	switch {
 	case export == nil:

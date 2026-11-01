@@ -27,6 +27,7 @@ import (
 	"github.com/dawbarton/sermon-companion/internal/capture"
 	"github.com/dawbarton/sermon-companion/internal/config"
 	"github.com/dawbarton/sermon-companion/internal/master"
+	"github.com/dawbarton/sermon-companion/internal/publish"
 	"github.com/dawbarton/sermon-companion/internal/store"
 	"github.com/dawbarton/sermon-companion/internal/waveform"
 )
@@ -49,13 +50,19 @@ type Server struct {
 	background context.Context
 	cancelWork context.CancelFunc
 	closing    bool
+	// publishHTTP makes the requests to the church website and YouTube, and
+	// probeDuration measures an MP3 before it is uploaded. The tests replace
+	// both.
+	publishHTTP   *http.Client
+	probeDuration func(ctx context.Context, ffprobe, path string) (time.Duration, error)
 }
 
 var errRecordingNotAdvanced = errors.New("wait for the recording to advance before starting the next segment")
 
 func NewServer(settings *config.Settings, sessions *store.Store, captureManager *capture.Manager, mastering *master.Master, static fs.FS) *Server {
 	background, cancelWork := context.WithCancel(context.Background())
-	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, openEditor: openInEditor, jobs: map[string]context.CancelFunc{}, background: background, cancelWork: cancelWork}
+	return &Server{settings: settings, store: sessions, capture: captureManager, master: mastering, waveform: waveform.New(settings.Get().FFmpeg, sessions), static: static, openFolder: openFolder, openLink: OpenInBrowser, openEditor: openInEditor, jobs: map[string]context.CancelFunc{}, background: background, cancelWork: cancelWork,
+		publishHTTP: &http.Client{Timeout: 10 * time.Minute}, probeDuration: publish.ProbeDuration}
 }
 
 // Shutdown cancels active exports and waits for them to record their final
@@ -98,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("PATCH /api/sessions/{id}/talk", s.patchTalk)
+	mux.HandleFunc("POST /api/sessions/{id}/publish", s.startPublish)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
@@ -341,11 +349,13 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("stop the recording before deleting this service"))
 		return
 	}
-	s.jobsMu.Lock()
-	_, exporting := s.jobs[id]
-	s.jobsMu.Unlock()
+	exporting, publishing := s.busy(id)
 	if exporting {
 		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to finish before deleting this service"))
+		return
+	}
+	if publishing {
+		writeError(w, http.StatusConflict, errors.New("wait for the upload to finish before deleting this service"))
 		return
 	}
 	if err := s.store.DeleteAtRevision(id, &expected); err != nil {
@@ -881,6 +891,13 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 		s.jobsMu.Unlock()
 		cancel()
 		writeError(w, http.StatusConflict, errors.New("an export is already running"))
+		return
+	}
+	if _, uploading := s.jobs[publishJob(id)]; uploading {
+		// The upload is reading the MP3 that a new export would replace.
+		s.jobsMu.Unlock()
+		cancel()
+		writeError(w, http.StatusConflict, errors.New("wait for the upload to finish before creating the MP3 again"))
 		return
 	}
 	s.jobs[id] = cancel
