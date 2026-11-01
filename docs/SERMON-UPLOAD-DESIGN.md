@@ -79,7 +79,7 @@ group being made writable; see "How the audio is attached".
 | Field | On the site | Where it comes from today | Notes |
 | --- | --- | --- | --- |
 | Talk title | `title` | Not collected | The session's `title` names the service, which is not the same thing. Titles on the site are the talk's own ("The Lord's Prayer: Our Father's protection"), sometimes just the passage ("Romans 5:1-11"). |
-| Date | `date_gmt`, and ACF `resource_date` | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. `resource_date` is a `Ymd` string, such as `20260913`. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. Which of the two dates the listing shows has not been checked. |
+| Date | `date_gmt`, and ACF `resource_date` | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. `resource_date` is a `Ymd` string, such as `20260913`. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. The talk page shows the post date: "Our Father's pardon" has `resource_date` 6 September but was posted, and is shown, on 13 September. Setting the post date to the service is therefore what keeps a late upload correctly dated. A signed-in read returns `resource_date` for every talk, whoever posted it, so a duplicate check can compare service dates. |
 | Church | `resource-church` term | Session `church` | Three terms: Emmanuel Bishopston 128, Emmanuel City Centre 127, Emmanuel Westbury 129. The app's church name already matches the term name exactly. |
 | Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. The edit screen's Resource Type is ACF `resource_type`, which the schema marks required with exactly one term ID, so `270` is sent there as well as in the taxonomy. |
 | Speaker | `resource-contributor` term | Not collected | 97 terms. Picked from the list wherever possible: the site already has "James Maurice" where a file name says "JamesMorris". A visiting speaker needs a new term, so the app must be able to create one, warning of near matches; see "Credentials". |
@@ -437,9 +437,8 @@ None of these blocks step 2.
 
 1. **Is Audio info generated when a talk is saved over REST?** No longer
    matters: the app sends the size and duration, and the test talk kept them.
-2. **Which date does the listing show,** the post date or the ACF Date field?
-   Setting both to the service date makes this moot unless they are meant to
-   differ.
+2. **Which date does the listing show?** Answered: the post date, so the app
+   sets it to the service date as well as `resource_date`.
 3. **What is the site's maximum upload size?** Media then Add New in the admin,
    "Maximum upload file size". The 42 MB file already on the site suggests it is
    no constraint.
