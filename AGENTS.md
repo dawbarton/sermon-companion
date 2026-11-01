@@ -147,6 +147,15 @@ from the log page, and from `--version` when its output is redirected.
   used while designing automatic sermon upload. It is a design instrument rather
   than part of the application, and it never writes to a site. See
   `docs/SERMON-UPLOAD-DESIGN.md` for the design it serves and its open questions.
+- `internal/publish`: the WordPress client and upload sequence for automatic
+  sermon upload: term lists and name matching, Bible passage parsing,
+  read-only session loading, and a resumable draft, upload, and publish
+  sequence. `cmd/sermon-publish` is its standalone command, used until the
+  review page gains an upload button. Uploads to Emmanuel Bristol depend on a
+  WPCode snippet on the site that makes application passwords work alongside
+  Defender; if it is removed, every authenticated request is answered
+  `rest_not_logged_in`, which says nothing about the snippet. See
+  `docs/SERMON-UPLOAD-DESIGN.md`.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
 - `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows
@@ -157,7 +166,10 @@ source, capture and mastering logs, event journal, current snapshot, cached
 waveform, and exports. The platform defaults are `%LOCALAPPDATA%\Sermon
 Companion` on Windows and `~/Library/Application Support/Sermon Companion` on
 macOS. Development and browser-test data should go under the ignored `work/`
-directory.
+directory. `work/publish-state/` is the exception to treating `work/` as
+scratch: it records what each upload created on the website, which is how a
+failed upload resumes and how `sermon-publish -delete` finds what to remove. It
+cannot be regenerated, so do not clear it.
 
 The default local pages are:
 
