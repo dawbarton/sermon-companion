@@ -378,6 +378,15 @@ upload is designed around failing rather than around succeeding.
   the file was served from the offload host, and the talk was invisible to an
   anonymous visitor.
 
+  Repeated the same day from the application's upload page, as private talk
+  16487 with file 16488, from a demonstration session filled in from a test
+  programme written by openpyxl. Read back signed in, every field was as
+  intended, including the series' image found from its latest talk, the file
+  given the talk's title through the upload request, and the file renamed
+  from the talk's church rather than the session's. The test found one fault,
+  since fixed: two fields left in quick succession sent the second save with
+  an out-of-date revision, which was refused.
+
 ## A product change to be explicit about
 
 `README.md` used to say that nothing is sent anywhere and that no internet
