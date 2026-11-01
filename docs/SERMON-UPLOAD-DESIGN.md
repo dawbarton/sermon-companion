@@ -280,7 +280,9 @@ WordPress's `WP_REST_Terms_Controller` and the default capabilities in
 or if the plugin that registers these taxonomies set stricter capabilities,
 which cannot be seen without signing in. If it did, the remedy is to grant that
 one capability to that one user, with `wp user add-cap <user> manage_categories`
-or a role editor plugin, rather than promoting the account to Editor. If
+or a role editor plugin, rather than promoting the account to Editor. Signed in
+on 1 November 2026, the account (user 8, Author) could assign and create terms in
+every `resource` taxonomy, so no extra capability is needed. If
 the site has a role editor, or will take a small mu-plugin, the capabilities can
 be trimmed further. This is worth stating plainly rather than implying the
 credential is safer than it is.
@@ -293,6 +295,18 @@ For Bishopston the decision is that one account, used for nothing but uploading
 sermons, does all of the uploading and post creation, and the app holds an
 application password for it. The account has the Author role. Revoking the
 application password cuts the app off without affecting anything else.
+
+**Sign-in depends on a snippet on the site.** Application passwords did not
+work at all until a WPCode snippet, run everywhere, was added on 1 November 2026.
+It treats `/wp-json/` requests as API requests, because Defender's Session
+Protection otherwise settles the current user before WordPress checks the
+password, and it keeps generated application passwords alphanumeric, because
+Defender's generator adds symbols that WordPress strips from what it shows and
+what it is given but not from what it stores. If the snippet is removed or
+deactivated, sign-in fails again with `rest_not_logged_in` rather than with any
+error about the password. The publisher should therefore treat that reply to an
+authenticated request as its own case, and say that the site's sign-in
+arrangement has changed, not that the password is wrong.
 
 Windows DPAPI would encrypt the file at rest against another user of the same
 machine. It is a reasonable later addition and not a substitute for the above.
@@ -408,46 +422,18 @@ out of the shell history and the process list. The command makes only `GET` and
 
 ## Open questions
 
-The first two block step 2.
+None of these blocks step 2.
 
-1. **Does the fix for application passwords work?** On 13 September 2026
-   signing in returned `rest_not_logged_in`, as did a deliberately invalid
-   username. The header is not the cause: `.htaccess` passes it on and Site
-   Health's test of it passes. Reading WordPress's and Defender's source (the
-   free edition's current code; the site runs Defender Pro) found two faults.
-   - *The credentials are never checked.* WordPress tries an application
-     password only once it knows the request is an API request, and for REST it
-     learns that from `REST_REQUEST`, defined when the request is parsed. Defender's
-     Session Protection calls `is_user_logged_in()` on `init`, earlier, so the
-     current user is settled as nobody and the password is ignored. Core's own
-     comment says the check "may happen too early".
-   - *No generated password can match.* Defender's Strong Password feature
-     replaces the password generator with one that adds symbols. WordPress
-     hashes that password, but strips everything except letters and digits
-     both from the copy it displays and from the password it is given at sign-in.
-     That is why the displayed passwords were 17 and 18 characters.
-
-   The proposed fix is one WPCode snippet, run everywhere, which treats any
-   `/wp-json/` request as an API request through the
-   `application_password_is_api_request` filter, and keeps generated
-   application passwords alphanumeric. WPCode runs such snippets on
-   `plugins_loaded`, before `init`. A new application password must be created
-   after the snippet is active.
-2. **Can the Author account create terms?** It should, by the reasoning under
-   "Credentials", unless the taxonomies were registered with stricter
-   capabilities. The authenticated probe would show this if extended to read
-   the taxonomies with `context=edit`; otherwise the first upload with a new
-   speaker settles it.
-3. **Is Audio info generated when a talk is saved over REST?** It matters less
+1. **Is Audio info generated when a talk is saved over REST?** It matters less
    now: the field is writable, and the app sends the size and duration itself.
    The end-to-end test shows whether the site overwrites them.
-4. **Which date does the listing show,** the post date or the ACF Date field?
+2. **Which date does the listing show,** the post date or the ACF Date field?
    Setting both to the service date makes this moot unless they are meant to
    differ.
-5. **What is the site's maximum upload size?** Media then Add New in the admin,
+3. **What is the site's maximum upload size?** Media then Add New in the admin,
    "Maximum upload file size". The 42 MB file already on the site suggests it is
    no constraint.
-6. **Will City Centre use it too?** The session's Church field selects the
+4. **Will City Centre use it too?** The session's Church field selects the
    target, so another congregation needs only a configuration entry and, if it
    keeps its own uploading account, its own application password.
 
@@ -455,4 +441,6 @@ Settled on 13 September 2026: the MP3 is the sermon, with the reading and Q&A
 when they are marked, never the whole service; talks are published directly
 rather than drafted; uploads are weekly, by different members of the A/V team;
 one Author account, used for nothing else, does all of Bishopston's uploading
-and post creation; and the session's Church field chooses the congregation.
+and post creation; and the session's Church field chooses the congregation. Settled on 1 November
+2026: application passwords work, through the WPCode snippet described under
+"Credentials", and the Author account can create the terms it needs.
