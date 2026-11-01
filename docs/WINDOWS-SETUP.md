@@ -55,10 +55,11 @@ ONE-TIME TECHNICAL SETUP
 
      %LOCALAPPDATA%\Sermon Companion\config.json
 
-   Set the top-level "church" value to the church name. This becomes the default
-   for each new service, for example:
+   Set the top-level "church" value to the church name, spelt exactly as the
+   church website spells it if talks are to be uploaded. It names each MP3 and
+   is the church a talk is filed under, for example:
 
-     "church": "St Mary's Church",
+     "church": "Emmanuel Bishopston",
 
    Save the file and restart the application. Everything else in "capture" is
    already correct: 48000 Hz, 2 channels, 20 ms periods, and 10 seconds of
@@ -69,6 +70,8 @@ ONE-TIME TECHNICAL SETUP
    church mix, not a microphone or silent device, and that it reports zero
    dropped frames.
 
+6. To upload talks to the church website, follow "SETTING UP UPLOADING" below.
+
 
 NORMAL OPERATION
 
@@ -77,8 +80,8 @@ NORMAL OPERATION
    review page. Starting it twice by mistake is harmless: the second copy opens
    the review page of the first and closes.
 2. In the OBS dock, check that the list at the top names the HDMI capture, then
-   click "Start Recording". The service is named after today's date, and can be
-   renamed on the review page. If the list shows "Not connected", the device
+   click "Start Recording". The service is named after today's date until its
+   talk is given a title on the upload page. If the list shows "Not connected", the device
    used last time is absent: choose the right one before starting. A recording
    will not begin against a device that is missing.
 3. Click Tag Reading start, Tag Sermon start, and Tag Q&A start at the
@@ -87,8 +90,7 @@ NORMAL OPERATION
 4. "Add marker" records a general note position without changing a segment.
 5. At the end of the service, click "Stop service".
 6. Click "Review Recordings" in the dock, click the notification-area icon, or
-   open http://127.0.0.1:8765/ in a browser. Check and, if necessary, edit the
-   service title and church; each field saves when it is left. Each segment has
+   open http://127.0.0.1:8765/ in a browser. Each segment has
    its own Play button, with First 5s and Last 5s for checking where it begins and ends.
    For coarse adjustments, drag a segment or either of its edges on the waveform.
    Use Zoom and Pan, or enter exact start and end times, for fine adjustments.
@@ -108,6 +110,19 @@ NORMAL OPERATION
    into one mono file. The result is named
    `YYYY-MM-DD-Church-Name.mp3`. Use "Open MP3 folder" to reveal it in File
    Explorer, or download it through the browser.
+8. Where uploading is set up, click "Upload MP3" instead of step 7. It makes
+   the MP3 if needed and opens the upload page at once. The talk's title,
+   speakers, series, Bible passage, image, and YouTube video are filled in from
+   the preaching programme, the website, and YouTube; the line at the top says
+   where each came from. Correct anything that changed late: each field saves
+   when it is left. Deal with anything listed in red, such as a speaker the
+   website does not know: choose the suggested name if it is a typing slip, or
+   tick "This is a new speaker" if it is not. Then click "Publish". The upload
+   carries on if the page is closed. If it stops, for example because the
+   internet connection dropped, click "Publish again"; it carries on from where
+   it stopped and never creates a talk twice. When it has finished, the page
+   shows the talk's link on the website. To correct a published talk, sign in
+   to the website.
 
 The editing controls are disabled while the MP3 is being created. If the
 application is closed during this work, it cancels the export and shows it as
@@ -147,6 +162,52 @@ the application, use "Quit Sermon Companion" in the icon's menu, which stops any
 recording in progress safely first.
 
 
+SETTING UP UPLOADING
+
+1. On the church website, choose the account that will upload. It needs the
+   Author role and nothing more. Under Users, Profile, Application Passwords,
+   create a password named "Sermon Companion" and copy it.
+
+2. Save the password, exactly as shown, in a new text file called
+
+     %LOCALAPPDATA%\Sermon Companion\website-password.txt
+
+   beside config.json. Nothing else goes in the file. Sermon Companion reads it
+   only when it uploads and never displays it. To withdraw the computer's
+   access, revoke the password on the website.
+
+3. Add a "publish" section to config.json, beside "church":
+
+     "publish": {
+       "site": "https://www.emmanuelbristol.org.uk",
+       "user": "the account's user name or email address",
+       "programme": "C:\\Users\\AV\\Emmanuel\\Preaching programme.xlsx",
+       "youtubeChannel": "UCReU3dVxdLKPuSs59dBgG6Q"
+     },
+
+   Backslashes in a path are written twice. "programme" and "youtubeChannel"
+   may be left out. Add "status": "private" while testing, so that uploads are
+   visible only to people signed in to the website. Save the file and restart
+   the application. The review page now shows "Upload MP3".
+
+4. The preaching programme is a spreadsheet with a heading row containing at
+   least Date, and usually Service (the start time), Title, Speakers, Series,
+   Passage, and Series image. Columns may be in any order, and any others are
+   ignored. Separate several speakers with commas. "Series image" is a link to
+   the series' picture on the website, needed only for the first talk of a new
+   series. If the programme lives in SharePoint, sync its folder through
+   OneDrive, right-click the file in File Explorer, choose "Always keep on this
+   device", and give that local path in config.json.
+
+5. A site that runs the Defender security plugin needs a short WPCode snippet
+   before application passwords work: without it every upload fails with a
+   message that the website ignored the sign-in. The snippet and the reason for
+   it are in docs\SERMON-UPLOAD-DESIGN.md.
+
+6. Try a private upload of a test recording, check it on the website while
+   signed in, and delete it there.
+
+
 RECOVERY
 
 If the computer or application stops during a recording, restart Sermon
@@ -157,6 +218,9 @@ recorded, because the encoder had not written its last few seconds, so a segment
 marked just before the interruption may be shortened or removed; removed
 segments can be restored from the review page. The review page explains what
 happened above the player. Review the end times before exporting.
+
+If the application stops during an upload, the upload page shows it as stopped
+when the application is next started. Click "Publish again" to carry on.
 
 
 IMPORTANT HARDWARE TEST

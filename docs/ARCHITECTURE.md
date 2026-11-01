@@ -149,9 +149,11 @@ the messages entirely is worse than losing the file copy of them.
 ## Generic segment model
 
 A session stores the service title and church alongside its recording state.
-Both fields remain editable after capture and are included in the append-only
-metadata history. A new session's church defaults from the top-level `church`
-setting in `config.json`.
+A new session's title is the date and its church the top-level `church` setting
+in `config.json`; the API can still change both, and the change is journalled,
+but the review page no longer shows them. The talk's own title and church live
+in the session's `talk` record instead (see "Uploading to the church website"),
+which is not part of the MP3.
 
 A segment has a stable ID, free-form `kind`, user-facing `label`, canonical start
 and end frames, derived times in seconds, an `include` flag, and an optional
@@ -224,7 +226,9 @@ Schema-1 snapshots stored segment and marker positions only as seconds. On
 first read they are converted transactionally to schema 2 audio frames using
 the legacy 48 kHz recording format, and a `session.schema_migrated` event records
 both schema versions and that sample-rate assumption. Invalid legacy timelines
-are reported rather than partially converted.
+are reported rather than partially converted. Schema 3 only added the `talk` and
+`publish` records, so a schema-2 snapshot gains them unchanged, with its own
+`session.schema_migrated` event.
 
 Start-up recovery checks both the published `audio.flac` and the staging
 `audio.part.flac`. It retains whichever valid recording exists, repairs the
@@ -277,8 +281,11 @@ operator clicks "Open MP3 folder".
 Export preflight is synchronous: the source, segments, and timeline are checked
 and `export.started` is committed before the API accepts the job. Segment,
 marker, and service edits are refused until it finishes. Immediately before
-publication, the stored revision is checked again; a changed service cannot
-replace the current MP3. On shutdown the server cancels and waits for FFmpeg,
+publication, everything that goes into the MP3 (the segments, the gap, the
+title and church written into it, and the source) is compared with what it was
+when the export began; a changed service cannot replace the current MP3. The
+talk's website details are deliberately not compared: they are filled in on the
+upload page while the MP3 is being made. On shutdown the server cancels and waits for FFmpeg,
 then records the export failure for the next start-up.
 
 If a service has never had any segments, mastering treats its complete recording
@@ -368,8 +375,9 @@ reports and records the chosen capture device, and serves the running log. It ca
 ask the operating system to open the MP3 folder, the log folder, or the review
 page, because the dock runs inside OBS's embedded browser where an ordinary link
 would open in the dock panel itself. The server listens on loopback by
-default and sets a restrictive content-security policy. It has no cloud or OBS
-WebSocket dependency. Live status includes the audio-frame position and capture
+default and sets a restrictive content-security policy. It has no OBS
+WebSocket dependency, and makes no outgoing connection unless uploading to the
+church website is configured. Live status includes the audio-frame position and capture
 health statistics.
 
 Finished-session mutations use the snapshot's monotonically increasing
@@ -381,15 +389,69 @@ already displayed, so a slow request cannot roll the interface backwards. Live
 dock actions use the capture manager's serial frame clock and do not require an
 `If-Match` header.
 
+## Uploading to the church website
+
+With a `publish` section in `config.json`, the review page's Upload MP3 opens
+`/upload`, where the talk's details for the website are filled in, checked, and
+published. Session schema version 3 added two records for this:
+
+- `talk`: title, date, church, speakers, series, passage, podcast choice, video
+  address, image reference, which new speakers or series the operator has
+  confirmed, and a sentence saying where the details were first filled in from.
+  It is created by `POST /api/sessions/{id}/talk/prefill` (`talk.prefilled`)
+  and edited field by field through `PATCH /api/sessions/{id}/talk`
+  (`talk.updated`). Neither makes the export stale.
+- `publish`: the upload's status, the site, which MP3 was uploaded, the error if
+  it failed, and its progress: every term, post, and attachment ID the site has
+  given, recorded as `publish.progress` as soon as it is given.
+
+The raised schema version makes an older application refuse a session rather
+than drop the record of what is on the website when it next saves.
+
+Filling in reads, in order of precedence: the preaching programme
+(`internal/programme`, an `.xlsx` or `.csv` read with the standard library and
+matched by date and service time), the site (names spelt as the site spells
+them, and the church's latest series), and the channel's public YouTube feed
+(the first video published within a window around the recording). The site's
+lists of churches, speakers, series, and books, and its latest hundred talks,
+are kept in `website-lists.json` beside the sessions and read again after an
+hour, so the page still works from the copy when the site cannot be reached.
+`GET /api/sessions/{id}/talk/check` reviews the talk against those lists with
+`publish.ReviewTalk`, and adds what only the site can say: the image a reference
+names or the series uses, and any talk already filed for the church and service
+date, compared by the site's Date field rather than the post date.
+
+`POST /api/sessions/{id}/publish` runs the upload in the background, beside the
+export jobs: the MP3 cannot be made again, nor the service deleted, while it
+runs. `internal/publish` prepares it against the site's current lists, then
+creates new terms, a draft talk, the attachment (parented to the talk and given
+its title), and finally sends every detail again with the audio and the final
+status. Resuming first checks what an earlier attempt made: a talk or file
+deleted since is made again, and a file uploaded before the MP3 was made again
+is deleted and replaced, since the talk is still a draft until the last step.
+A talk already filed for the same church and day stops the upload, before
+anything is created, until the operator confirms it. An upload interrupted by
+the application stopping is marked failed at start-up with its progress kept.
+
+The application password is read from `website-password.txt` beside
+`config.json` when it is needed, never stored in the configuration or returned
+by the API. `cmd/sermon-publish` is the same upload as a standalone command,
+which reads a session folder without writing to it and keeps its own progress
+records under `work/publish-state`.
+
 ## Repository map
 
 ```text
 cmd/sermon-companion/   application entry point, tray icon, and drawn icon
+cmd/sermon-publish/     the upload as a standalone command
+cmd/wp-probe/           read-only reconnaissance of a WordPress site
 internal/app/           local HTTP API and embedded browser UI
 internal/applog/        rolling log file and the tail the log page shows
 internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback
 internal/config/        configuration defaults and create-on-first-run behaviour
 internal/master/        per-label two-pass loudness normalisation and MP3
+internal/programme/     preaching programme spreadsheet reader
+internal/publish/       WordPress client, talk review, and resumable upload
 internal/store/         versioned session model and append-only event journal
 internal/waveform/      cached compact peak envelope
 docs/                   deployment and architecture notes

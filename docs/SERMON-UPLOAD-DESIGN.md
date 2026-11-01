@@ -1,19 +1,21 @@
 # Automatic sermon upload: working design
 
 This is a working note, not a settled specification. It records what uploading a
-finished MP3 to a church website needs, what is already known, and what has to be
-answered before any of it is built. The Emmanuel Bristol site was probed
+finished MP3 to a church website needs, what was found out, and what was built:
+a standalone publisher, `cmd/sermon-publish`, and an upload page in the
+application itself, both over `internal/publish`. The Emmanuel Bristol site was probed
 anonymously on 13 September 2026; what that established, and what it could not,
 is set out under "What the site turned out to be" and in the open questions at
 the end.
 
 ## Goal and deliberate non-goals
 
-After a service, the operator presses one button on the review page and the MP3,
-together with its title, speaker, series, and Bible passage, arrives on the
-church website as a published sermon. Everything the website needs is collected
-during or shortly after the service, mostly as defaults the operator confirms
-rather than as boxes to fill in. Nobody has to log in to the website.
+After a service, the operator presses Upload MP3 on the review page, checks the
+details on the upload page, and presses Publish, and the MP3, with its title,
+speakers, series, Bible passage, image, and video, arrives on the church
+website as a published sermon. The details are filled in from the preaching
+programme, the website, and YouTube, so the operator confirms them rather than
+typing them. Nobody has to log in to the website.
 
 The MP3 is the existing export of the segments the operator included: the
 sermon, with the reading and Q&A when they are marked. The whole service is
@@ -23,9 +25,9 @@ A talk is uploaded every week, but by different members of the A/V team, each of
 whom may do it only once every month or two. The design is judged by whether someone who has forgotten how it
 works still gets it right, which rules out a draft that someone must then
 publish on the site: logging in is the step being removed. The check a draft
-would have provided moves into the app, as a final summary of exactly what will
-be published (title, speaker, series, passage, church, and the MP3's length)
-shown when the button is pressed. Publishing is not cheap to undo. The podcast
+would have provided moves into the app: the upload page shows everything that
+will be published, says what the website will make of each name, and asks
+before publishing. Publishing is not cheap to undo. The podcast
 flag is on by default, and the site links to Apple Podcasts and Spotify shows
 for each congregation, so a published talk very probably reaches podcast apps,
 where a correction on the site does not follow it quickly. How those feeds are
@@ -37,8 +39,8 @@ Not in scope for now:
   integration; building a general publishing framework before a single site works
   is the wrong order.
 - Uploading the lossless source. The MP3 is the published artefact.
-- Setting the YouTube link a talk page shows. It lives in a field the REST API
-  does not expose (see below) and belongs to whoever publishes the video.
+- Correcting a talk once it is published, or replacing its audio. Both are made
+  on the website for now.
 
 ## Build order
 
@@ -63,6 +65,10 @@ that must not break. They are therefore separated for as long as possible.
    publish state, and the standalone command becomes a thin wrapper over the
    same package.
 
+All four are done. Steps 3 and 4 were built on 1 November 2026 as a separate
+upload page rather than fields on the review page, with the details filled in
+from a preaching programme spreadsheet; see "Where the fields are collected".
+
 Steps 1 and 2 are a separate binary in this repository rather than a separate
 project, so that the eventual move into `internal/publish` is a file move rather
 than a rewrite.
@@ -76,22 +82,23 @@ Fields (ACF) group that the REST API does not expose: the audio, the Bible
 passage, the podcast flag, and the rest. The upload therefore depends on that
 group being made writable; see "How the audio is attached".
 
-| Field | On the site | Where it comes from today | Notes |
+| Field | On the site | Where it comes from | Notes |
 | --- | --- | --- | --- |
-| Talk title | `title` | Not collected | The session's `title` names the service, which is not the same thing. Titles on the site are the talk's own ("The Lord's Prayer: Our Father's protection"), sometimes just the passage ("Romans 5:1-11"). |
-| Date | `date_gmt`, and ACF `resource_date` | Session `startedAt` | The edit screen has its own Date field besides the post date; set both to the service date. `resource_date` is a `Ymd` string, such as `20260913`. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. The talk page shows the post date: "Our Father's pardon" has `resource_date` 6 September but was posted, and is shown, on 13 September. Setting the post date to the service is therefore what keeps a late upload correctly dated. A signed-in read returns `resource_date` for every talk, whoever posted it, so a duplicate check can compare service dates. |
-| Church | `resource-church` term | Session `church` | Three terms: Emmanuel Bishopston 128, Emmanuel City Centre 127, Emmanuel Westbury 129. The app's church name already matches the term name exactly. |
+| Talk title | `title` | Programme, then the upload page | The session's `title` names the service, which is not the same thing. Titles on the site are the talk's own ("The Lord's Prayer: Our Father's protection"), sometimes just the passage ("Romans 5:1-11"). |
+| Date | `date_gmt`, and ACF `resource_date` | Session `startedAt`, correctable on the upload page | The edit screen has its own Date field besides the post date; set both to the service date. `resource_date` is a `Ymd` string, such as `20260913`. Send `date_gmt` so the site's zone (`Europe/London`) cannot shift the post date. Existing talks are often dated on the day they were posted. The talk page shows the post date: "Our Father's pardon" has `resource_date` 6 September but was posted, and is shown, on 13 September. Setting the post date to the service is therefore what keeps a late upload correctly dated. A signed-in read returns `resource_date` for every talk, whoever posted it, so a duplicate check can compare service dates. |
+| Church | `resource-church` term | The `church` setting, correctable on the upload page | Three terms: Emmanuel Bishopston 128, Emmanuel City Centre 127, Emmanuel Westbury 129. The app's church name already matches the term name exactly. |
 | Kind of resource | `resource-type` term | Fixed | Sermon is term 270. The same type also holds 1,235 blog posts, so omitting this puts a talk among the blogs and out of the sermon listing. The edit screen's Resource Type is ACF `resource_type`, which the schema marks required with exactly one term ID, so `270` is sent there as well as in the taxonomy. |
-| Speaker | `resource-contributor` term | Not collected | 97 terms. Picked from the list wherever possible: the site already has "James Maurice" where a file name says "JamesMorris". A visiting speaker needs a new term, so the app must be able to create one, warning of near matches; see "Credentials". |
-| Series | `resource-series` term | Not collected | 286 terms, many congregation-specific ("The Lord's Prayer (EB)", "Amazing Grace (2 Kings; ECC)"), though the suffix is not used consistently. Optional: some talks have none. |
-| Bible passage | ACF `resource_bible_passages`, free text | Not collected | The full reference, such as "Matthew 6:13". Typed each time. |
+| Speakers | `resource-contributor` terms | Programme, then the upload page | 97 terms; a talk may have several. Picked from the list wherever possible: the site already has "James Maurice" where a file name says "JamesMorris". A visiting speaker needs a new term, so the app must be able to create one, warning of near matches; see "Credentials". |
+| Series | `resource-series` term | Programme, else the church's latest talk | 286 terms, many congregation-specific ("The Lord's Prayer (EB)", "Amazing Grace (2 Kings; ECC)"), though the suffix is not used consistently. Optional: some talks have none. |
+| Bible passage | ACF `resource_bible_passages`, free text | Programme, then the upload page | The full reference, such as "Matthew 6:13", or several separated by commas. |
 | Book of the Bible | `bible_book` term | Derived | 66 terms, one per book, slugs numbered in canonical order (`040-matthew`). Derived from the book named in the passage and shown for confirmation; a passage spanning several books needs a choice. |
 | Topic | `resource-topic` term | Not collected | 17 terms, used mainly by blog posts. Leave empty. |
-| Featured image | `featured_media` | Not collected | Set on some talks (a shared "Website Sermon Tiles" image), not on others. Leave empty unless the church wants a default. |
+| Featured image | `featured_media` | The series' latest talk, or a link in the programme | Since summer 2026 every talk in a series shares the series' image; older talks have a shared "Website Sermon Tiles" image or none. |
 | Audio | ACF `resource_audio`, an attachment ID | `exports/YYYY-MM-DD-Church.mp3` | Uploaded to the media library attached to the talk, then selected in this field. See below. |
-| Include in podcast feed | ACF `resource_include_in_podcast_feed`, the string `Yes` or `No` | Fixed | Sent as `Yes` explicitly, since the field's default may not apply to a post created over REST. |
+| Include in podcast feed | ACF `resource_include_in_podcast_feed`, the string `Yes` or `No` | `publish.podcast`, then the upload page | Sent explicitly, since the field's default may not apply to a post created over REST. |
 | Audio info | ACF `resource_audio_info`: `resource_audio_file_size` in bytes, `resource_audio_duration` as `HH:MM:SS` | The export | Filled in by the site from the media file when a talk is saved in the admin; whether a REST save does the same is unknown. The field is writable, so the app sends both values itself. |
-| Subtitle, Summary, Content, Video source, YouTube and Vimeo URLs, Sharing | ACF `resource_subtitle`, `resource_summary`, `resource_content`, `resource_video_source`, `resource_youtube_url`, `resource_vimeo_url`, `resource_sharing` | Nothing | Not used for sermons; left empty. |
+| Video | ACF `resource_video_source` (`YouTube`) and `resource_youtube_url` | The channel's YouTube feed, then the upload page | Set on every recent talk. Sent only when there is a video. |
+| Subtitle, Summary, Content, Vimeo URL, Sharing | ACF `resource_subtitle`, `resource_summary`, `resource_content`, `resource_vimeo_url`, `resource_sharing` | Nothing | Not used for sermons; left empty. |
 
 ### How the audio is attached
 
@@ -147,106 +154,105 @@ variable bitrate at about 70 kbit/s (today's 31-minute file is 16.2 MB), so a
 75-minute service would be about 40 MB and a sermon alone about 20 MB. Upload
 size is unlikely to be what decides between them.
 
-## Defaults from the last talk
+## Defaults
 
-The rule asked for is that a new service borrows its speaker, series, and the
-rest from the last talk for the same church. Two sources are possible and they
-are not equivalent.
+The details are filled in once, the first time the upload page is opened for a
+service, from three sources in order:
 
-- **The last local session with the same church.** Works offline, is instant, and
-  is available at the moment of recording. It goes blank once retention has
-  deleted the old sessions, which by default is after 60 days.
-- **The last published talk on the website for that church.** Survives retention
-  and reflects what was actually published, including any correction made on the
-  site. It needs the network, and it needs the site to be reachable at the moment
-  the default is wanted. On this site it is one request:
-  `/wp/v2/resource?resource-church=128&resource-type=270&_embed=wp:term`.
+1. **The preaching programme.** The administrators keep a spreadsheet of the
+   talks planned for the term, in SharePoint, synced to the church computer.
+   Its row for the day of the service (and, when a day has more than one
+   service, the row whose start time is nearest the recording's) gives the
+   title, speakers, series, passage, and, for the first talk of a new series,
+   a link to the series' image. Names are then given as the site spells them.
+2. **The website.** If the programme gives no series, the church's latest talk
+   does. The image is the one the series' latest talk uses: every talk in a
+   series on this site shares one featured image (series 738 always 16361,
+   736 always 15668), so a new image is needed only when a series starts.
+3. **YouTube.** The channel's public feed lists its latest fifteen videos,
+   live streams included, without an API key. A stream's publication time is
+   not reliably on the service day (25 October's was published at 00:45 on the
+   26th), so the first video published between three hours before and a day
+   and a half after the start of the recording is chosen.
 
-The website is the primary source. Uploads are weekly, so last week's session
-will normally still be on the church computer, but they are made by different
-people, and the website is what reflects any correction made to a talk after it
-was uploaded, whoever uploaded it and from wherever. The website also supplies the *lists*: the speakers and series offered in
-the interface are the site's real terms, cached, so that the operator picks an
-existing term rather than creating a near-duplicate by typing. The last local
-session for the same church is the fallback when the site cannot be reached.
+After that the details are the operator's: opening the page again keeps them,
+and "Fill in again from the programme" replaces them only when asked.
+
+The website also supplies the *lists*: the speakers and series offered are the
+site's real terms, kept on disk and read again hourly, with that church's recent
+ones first, so that the operator picks an existing term rather than creating a
+near-duplicate by typing.
 
 The Bishopston record, the fifteen talks from 31 May to 13 September 2026,
-settles two of these. Series run for several weeks (1 Thessalonians for at least
-eight talks, then 2 Kings for three, then the Lord's Prayer for four so far), so
-the series defaults unconditionally.
+showed why the speaker is never defaulted from the last talk: repeating the
+last speaker would have been wrong eight times in fourteen, and a confidently
+wrong name is eventually accepted without being read. The programme, which
+names the planned speaker, replaces that guess.
 
-The speaker should not default at all. An earlier draft of this note proposed
-defaulting it only when the last two talks for that church had the same speaker.
-Applied to that record, the rule would have offered a name four times and been
-wrong twice; simply repeating the last speaker would have been wrong eight times
-in fourteen. A confidently wrong name is worse than an empty box, because it is
-eventually accepted without being read. Instead the list puts that church's
-recent speakers first, which makes the right choice one click without ever
-making it for the operator.
-
-The book of the Bible is not defaulted; it is derived from the passage, which is
-typed each time. A series does not fix the book: the Lord's Prayer talk filed
-under Ezekiel is correct, because that series draws on different books to show
-different aspects of the prayer.
-
-The series list needs narrowing to be usable: 286 terms with no church attached
-to them. Offer first the series used by that church's recent talks, then the
-rest.
+The book of the Bible is not defaulted; it is derived from the passage. A series
+does not fix the book: the Lord's Prayer talk filed under Ezekiel is correct,
+because that series draws on different books to show different aspects of the
+prayer.
 
 ## Where the fields are collected
 
-On the review page, not the dock. The dock shares a narrow column with other OBS
-docks and is deliberately almost empty before a recording starts; adding metadata
-fields to it would cost vertical space during the one moment the operator has
-something else to do. The review page already edits the title and the church, and
-saves as it goes, so the new fields belong beside them.
+On a separate upload page, not the dock or the review page. The dock shares a
+narrow column with other OBS docks and is deliberately almost empty before a
+recording starts. The review page loses its title and church boxes, and Upload
+MP3 takes the place of Download MP3. Pressing it starts making the MP3 if there
+is no current one and opens the upload page at once, so the details are
+checked while the MP3 is made. None of the details is in the MP3, so editing
+them never makes the export stale, which they would have done as fields of the
+review page.
 
 ## Storage
 
-The field set is site-specific, which is why the probe exists. The session model
-should therefore stay generic in the way the segment model already is:
-configuration declares which fields to collect, and the session stores their
-values. Emmanuel Bristol is one site with three congregations, so the common case
-is several church names pointing at one site, each pinning its own congregation
-term.
+The earlier plan here was a generic, declarative field list per church target.
+It was not built: there is one site, its fields are known, and three
+congregations share it, so the talk's church is chosen from the site's own list
+rather than selecting a target. Configuration says where to upload and where
+the details come from:
 
 ```jsonc
 // config.json
+"church": "Emmanuel Bishopston",
 "publish": {
-  "targets": {
-    "Emmanuel Bishopston": {
-      "site": "https://www.emmanuelbristol.org.uk",
-      "user": "sermon-companion",
-      "postType": "resource",
-      "status": "publish",
-      "fixedTerms": {"resource-church": 128, "resource-type": 270},
-      "fixedAcf": {"resource_type": 270, "resource_include_in_podcast_feed": "Yes"},
-      "fields": [
-        {"key": "speaker", "label": "Speaker", "source": {"taxonomy": "resource-contributor"}, "carryOver": "never", "recentFirst": true},
-        {"key": "series",  "label": "Series",  "source": {"taxonomy": "resource-series"}, "carryOver": "always", "optional": true},
-        {"key": "passage", "label": "Bible passage", "source": {"acf": "resource_bible_passages"}, "carryOver": "never"},
-        {"key": "book",    "label": "Book of the Bible", "source": {"taxonomy": "bible_book"}, "derivedFrom": "passage"}
-      ]
-    }
-  }
+  "site": "https://www.emmanuelbristol.org.uk",
+  "user": "the uploading account",
+  "status": "publish",              // or "private" or "draft" for testing
+  "podcast": true,
+  "resourceType": "Sermon",
+  "programme": "C:\\…\\Preaching programme.xlsx",
+  "programmeSheet": "",             // the first worksheet if empty
+  "youtubeChannel": "UCReU3dVxdLKPuSs59dBgG6Q"
 }
 ```
 
+The application password is in `website-password.txt` beside `config.json`.
+
+Session schema 3 stores the talk by name, as the operator sees it, and the
+upload's progress by ID:
+
 ```jsonc
 // session.json, schema 3
-"talk": {"title": "The Lord's Prayer: Our Father's protection",
-         "fields": {"speaker": 296, "series": 736, "passage": "Matthew 6:13", "book": 239}},
-"publish": {"status": "uploaded", "target": "Emmanuel Bishopston", "postId": 15944,
-            "mediaId": 15945, "postUrl": "https://www.emmanuelbristol.org.uk/?p=15944",
-            "startedAt": "...", "endedAt": "...", "error": ""}
+"talk": {"title": "What's wrong with us?", "date": "2026-11-01",
+         "church": "Emmanuel Bishopston", "speakers": ["Jim Walford"],
+         "newSpeakers": [], "series": "Life Together", "newSeries": false,
+         "passage": "Romans 3:9-20", "podcast": true,
+         "videoUrl": "https://www.youtube.com/watch?v=FqAJchBCktM", "image": "",
+         "source": "Filled in from row 14 of the programme. …"},
+"publish": {"status": "completed", "site": "https://www.emmanuelbristol.org.uk",
+            "mp3": "exports/2026-11-01-Emmanuel-Bishopston.mp3", "mp3Finished": "…",
+            "progress": {"speakers": {}, "series": {}, "postId": 16500,
+                         "mediaId": 16501, "finished": true, "link": "…"},
+            "startedAt": "…", "endedAt": "…", "error": ""}
 ```
 
-Term fields store the term ID, which is what the site accepts and survives a
-rename; the interface shows the cached name. Keying the targets by church makes
-"the same church" mean something concrete and still handles a church with a site
-of its own. The session's existing Church field selects the target, so City
-Centre joins by adding a target that pins term 127. The schema change is a minor version bump under the project's own
-rules.
+Names rather than term IDs are stored because the operator edits names and the
+site's terms are looked up again, by name, before every upload; a name that is
+not on the site stops the upload unless the operator confirmed it as new. City
+Centre joins by running Sermon Companion with its own `church`, or by choosing
+the church on the upload page.
 
 ## Credentials
 
@@ -328,11 +334,17 @@ upload is designed around failing rather than around succeeding.
 - **Auditable in the same way as everything else.** Publish state changes append
   an event to `events.jsonl` before the snapshot is replaced, exactly as export
   and segment edits already do.
-- **No duplicates.** The created post ID is stored. A second press of the button
-  updates that post rather than creating a second one, and if the stored post has
-  been deleted on the site, that is reported rather than silently recreated.
-  Replacing the audio uploads a new attachment and detaches the old one; it does
-  not delete it.
+- **No duplicates.** Every ID the site gives is stored as soon as it is given,
+  so pressing Publish again after a failure carries on rather than starting
+  again, and a published talk cannot be published twice. Before carrying on,
+  the app checks what the earlier attempt made: a talk deleted on the site
+  since is created again, and a file uploaded before the MP3 was made again is
+  deleted and replaced, which is safe because the talk is still a draft until
+  the last step. (`cmd/sermon-publish` instead reports a deleted talk and
+  stops.) A talk already filed by hand for the same church and service date
+  stops the upload, before anything is created, until the operator confirms
+  it. The final request resends every detail with the audio, so a correction
+  made between a failed attempt and its retry is what is published.
 - **Size and timeout are discovered deliberately.** Neither the maximum upload
   size nor the PHP timeout is reported over REST; both come from the host's
   configuration, and here the offload plugin adds to the time. They are found
@@ -368,12 +380,10 @@ upload is designed around failing rather than around succeeding.
 
 ## A product change to be explicit about
 
-`README.md` currently says, in as many words, that nothing is sent anywhere and
-that no internet connection is involved. That stops being true the moment this
-feature exists. The claim should change to something accurate and narrower: the
-recording and review remain entirely local, and the only thing ever sent is a
-finished MP3 and its details, to a site the operator has configured, when the
-operator asks for it.
+`README.md` used to say that nothing is sent anywhere and that no internet
+connection is involved. It now says that this holds unless uploading is set
+up, and that with it the application talks to that one website and reads the
+church channel's public YouTube feed.
 
 ## What the site turned out to be
 
@@ -442,9 +452,13 @@ None of these blocks step 2.
 3. **What is the site's maximum upload size?** Media then Add New in the admin,
    "Maximum upload file size". The 42 MB file already on the site suggests it is
    no constraint.
-4. **Will City Centre use it too?** The session's Church field selects the
-   target, so another congregation needs only a configuration entry and, if it
-   keeps its own uploading account, its own application password.
+4. **Will City Centre use it too?** Its computer needs only its own `church`
+   and `publish` settings and, if it keeps its own uploading account, its own
+   application password. A shared programme spreadsheet can give each row a
+   Church.
+5. **Is the programme's real layout as assumed?** The reader finds columns by
+   heading and was tested with a workbook written by openpyxl, not yet with one
+   saved by the administrators' Excel from SharePoint.
 
 Settled on 13 September 2026: the MP3 is the sermon, with the reading and Q&A
 when they are marked, never the whole service; talks are published directly

@@ -12,6 +12,11 @@ marked parts into place, listen to them, then create the MP3. Each part is
 levelled by its label, so a quiet reading and a loud sermon end up at the same
 comfortable volume, while a sermon split in two keeps one volume throughout.
 
+If it is set up to, it then publishes the MP3 on the church's WordPress website
+as a talk, with its title, speakers, series, passage, image, and video filled in
+from the church's preaching programme, so that whoever is on the A/V rota that
+week does not need to sign in to the website.
+
 ## What you need
 
 - Windows 10 or 11, with the service audio reaching the computer, usually
@@ -20,8 +25,12 @@ comfortable volume, while a sermon split in two keeps one volume throughout.
 - `ffmpeg.exe` and `ffprobe.exe`, version 4.4 or later. These are not included
   in the download; see the installation notes below.
 
-Nothing is sent anywhere. The application listens only on this computer, and
-there is no account, cloud service, or internet connection involved.
+The application listens only on this computer. Unless uploading to the church
+website is set up, nothing is sent anywhere and no internet connection is
+involved. With it set up, the application talks to that one website, signed in
+with an application password kept beside the settings, and reads the church
+channel's public list of YouTube videos; see
+[Uploading to the church website](#uploading-to-the-church-website).
 
 ## Installing
 
@@ -50,7 +59,7 @@ In the OBS dock:
 
 1. Check that the device list at the top names the HDMI capture, then press
    **Start Recording**. The whole service is now being recorded. The service is
-   named after today's date; the review page can rename it afterwards.
+   named after today's date until its talk is given a title on the upload page.
 2. Press **Tag Reading start**, **Tag Sermon start**, or **Tag Q&A start** when
    each part begins. Pressing the next start button ends the previous part. Press
    its **Tag … end** button to end a part without starting another.
@@ -75,7 +84,6 @@ reported audio and the session metadata has been saved.
 
 Choose the service in the list on the left. Then:
 
-- Check and correct the service title and church, which name the MP3.
 - Drag a marked part along the waveform to move it, or drag either edge to
   change where it starts or ends. Zoom in first for fine adjustments. Parts can
   touch but cannot overlap.
@@ -100,7 +108,9 @@ Choose the service in the list on the left. Then:
   and is remembered for that service alone.
 - Press **Create MP3**, then **Open MP3 folder** or **Download MP3**. If no parts
   have ever been marked, the whole recording is normalised as one part and
-  exported. Parts deliberately removed or unticked are still respected.
+  exported. Parts deliberately removed or unticked are still respected. Where
+  uploading is set up, **Upload MP3** takes the place of **Download MP3**; see
+  below.
 
 The service is read-only while its MP3 is being created. Closing Sermon
 Companion cancels any active export cleanly and records it as failed, ready to
@@ -111,10 +121,97 @@ recorded channels carry the same audio, and `-19` is the loudness recommended
 for a mono spoken-word file. `mastering.mono` below keeps the recorded stereo
 instead. The lossless recording stays stereo either way.
 
-The MP3 is named after the service date and church, for example
+The MP3 is named after the service date and the `church` setting, for example
 `2026-08-30-St-Marys-Church.mp3`. Creating it again keeps the previous one in an
-`exports/previous` folder. Changing anything after the MP3 has been created
-marks it out of date, so it is clear that it needs making again.
+`exports/previous` folder. Changing a part after the MP3 has been created marks
+it out of date, so it is clear that it needs making again. The talk's details on
+the upload page are not part of the MP3, and changing them does not.
+
+## Uploading to the church website
+
+Press **Upload MP3** on the review page. It starts making the MP3 if there is no
+up-to-date one, and opens the upload page straight away, so the details can be
+checked while the MP3 is made.
+
+The first time the page is opened for a service, it fills the details in:
+
+- the title, speakers, series, passage, and series image from the preaching
+  programme's row for the day of the service, choosing by service time when
+  there is more than one that day;
+- the series of the church's latest talk on the website, if the programme gives
+  none;
+- the video from the church's YouTube channel, the first published around the
+  time of the recording;
+- the image used by the series' latest talk on the website, unless the
+  programme names one.
+
+A line at the top says where each came from. Each field saves itself when it is
+left. Beside them, the page says what the website will make of the talk: a
+speaker or series the website does not have, with any similar names it does have
+to choose instead and a box to tick if the name really is new; the Bible books
+the passage will be filed under; the image; the video's title; and any talk
+already on the website for the same church and day. **Publish** becomes
+available once the MP3 is ready and nothing stands in the way, and asks before
+it publishes. The upload carries on if the page is closed.
+
+If the upload stops part way, for example because the internet connection
+dropped, press **Publish again**: it carries on from where it stopped without
+creating anything twice. Once the talk is published, its link is shown, and any
+later correction is made on the website itself.
+
+### Setting it up
+
+Add a `publish` section to `config.json`:
+
+```json
+"publish": {
+  "site": "https://www.example.org",
+  "user": "uploads@example.org",
+  "programme": "C:\\Users\\AV\\Church\\Preaching programme.xlsx",
+  "youtubeChannel": "UCxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+| Setting | Meaning |
+| --- | --- |
+| `publish.site` | The website's address, which must begin `https://`. |
+| `publish.user` | The WordPress account that uploads. It needs the Author role. |
+| `publish.status` | `publish`, the default, or `private` or `draft` for testing. |
+| `publish.podcast` | Whether a talk goes into the podcast feed unless the box is unticked. The default is `true`. |
+| `publish.resourceType` | The website's name for the kind of resource a talk is. The default is `Sermon`. |
+| `publish.programme` | The preaching programme, an `.xlsx` or `.csv` file. Optional. |
+| `publish.programmeSheet` | The worksheet to read; the first is used if this is left out. |
+| `publish.youtubeChannel` | The channel's ID, beginning `UC`, not its @ handle. Optional. |
+
+Then create an application password for that account on the website (Users,
+Profile, Application Passwords) and save it in a file called
+`website-password.txt` beside `config.json`. It is read only when needed, never
+shown, and kept out of `config.json` so that the settings can be opened on
+screen safely. A WordPress site running Defender needs a small extra snippet
+before application passwords work at all; see
+[docs/SERMON-UPLOAD-DESIGN.md](docs/SERMON-UPLOAD-DESIGN.md).
+
+### The preaching programme
+
+The programme is a spreadsheet with a heading row. Columns are found by their
+headings, so they can be in any order, and columns with other headings are
+ignored:
+
+| Heading | Contents |
+| --- | --- |
+| Date | The day of the service. Required. |
+| Service | The start time, such as 10:30, used to choose between two services on one day. |
+| Church | Only needed when several churches share one programme. |
+| Title | The talk's title. |
+| Speakers | One or more names, separated by commas. |
+| Series | The series name, as the website spells it. |
+| Passage | Such as `Matthew 6:9-13`, or several separated by commas. |
+| Series image | A link to the series' image on the website, needed only for the first talk of a new series. |
+
+A row whose date cannot be read is listed on the upload page rather than
+skipped silently. A programme kept in SharePoint and synced to the church
+computer through OneDrive should be set to "Always keep on this device", so that
+it can be read when the computer is offline.
 
 If the same service is open in two browser tabs, a save from an older view is
 refused and that tab reloads the latest values. It never silently overwrites a
@@ -155,7 +252,7 @@ most likely to need changing are:
 
 | Setting | Meaning |
 | --- | --- |
-| `church` | Church name for new services, used in the MP3 filename. |
+| `church` | Church name for new services, used in the MP3 filename and as the talk's church on the website. |
 | `capture.deviceId` | Recording device. Normally set by choosing a device in the OBS dock rather than by hand. |
 | `retentionDays` | Days a recorded service and its MP3s are kept before being deleted. `0` keeps every service indefinitely. |
 | `mastering.mp3Quality` | MP3 size against quality, from `0` for the largest files to `9` for the smallest. The default, `5`, suits speech. |
@@ -163,6 +260,7 @@ most likely to need changing are:
 | `mastering.mono` | Whether the MP3 is a single channel. The default, `true`, suits one speaker through one mix and matches the loudness target above. Set to `false` to keep the recorded stereo. |
 | `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
+| `publish` | Uploading to the church website; see [Setting it up](#setting-it-up). |
 | `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |
 
 The application checks every setting before it starts recording or applies
