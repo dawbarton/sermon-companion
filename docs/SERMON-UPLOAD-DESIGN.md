@@ -355,6 +355,17 @@ upload is designed around failing rather than around succeeding.
   Check that the published page's player plays and that Audio info was
   generated, then delete the talk and its attachment.
 
+  Done on 1 November 2026 with `cmd/sermon-publish`, as a private talk (ID
+  16485) holding a 38-second test tone. The first attempt created the draft and
+  uploaded the file, then the final request was refused: ACF checks every `acf`
+  object against the whole field group's schema, so the required
+  `resource_type` has to be sent with each update, not only when the talk is
+  created. With that fixed, rerunning the command resumed at the failed step
+  and finished. Read back signed in, every term and field was as intended, the
+  final update had left the draft's passage, date, and podcast fields alone,
+  the file was served from the offload host, and the talk was invisible to an
+  anonymous visitor.
+
 ## A product change to be explicit about
 
 `README.md` currently says, in as many words, that nothing is sent anywhere and
@@ -424,9 +435,8 @@ out of the shell history and the process list. The command makes only `GET` and
 
 None of these blocks step 2.
 
-1. **Is Audio info generated when a talk is saved over REST?** It matters less
-   now: the field is writable, and the app sends the size and duration itself.
-   The end-to-end test shows whether the site overwrites them.
+1. **Is Audio info generated when a talk is saved over REST?** No longer
+   matters: the app sends the size and duration, and the test talk kept them.
 2. **Which date does the listing show,** the post date or the ACF Date field?
    Setting both to the service date makes this moot unless they are meant to
    differ.
