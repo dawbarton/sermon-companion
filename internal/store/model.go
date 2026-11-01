@@ -2,7 +2,11 @@ package store
 
 import "time"
 
-const SchemaVersion = 2
+// SchemaVersion 3 added the talk's details for the church website and the
+// record of uploading it. An older application would drop both when it next
+// saved the session, losing the record of what is on the website, so the
+// version is raised to make it refuse the session instead.
+const SchemaVersion = 3
 
 type Session struct {
 	SchemaVersion int         `json:"schemaVersion"`
@@ -23,7 +27,64 @@ type Session struct {
 	// the setting existed still exports with the operator's usual gap.
 	GapSeconds *float64    `json:"gapSeconds,omitempty"`
 	Export     *ExportInfo `json:"export,omitempty"`
-	Error      string      `json:"error,omitempty"`
+	// Talk is what the church website is told about the service. It is nil
+	// until the upload page is first opened. None of it goes into the MP3, so
+	// changing it never makes an export stale.
+	Talk *Talk `json:"talk,omitempty"`
+	// Publish records the upload of the MP3 to the church website.
+	Publish *PublishInfo `json:"publish,omitempty"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// Talk is the description of a service's talk that the church website shows.
+type Talk struct {
+	Title string `json:"title"`
+	// Date is the day of the service, YYYY-MM-DD.
+	Date string `json:"date"`
+	// Church, Speakers, and Series are names matched against the site's lists.
+	Church   string   `json:"church"`
+	Speakers []string `json:"speakers"`
+	// NewSpeakers and NewSeries record that the operator confirmed a name is
+	// not on the site yet and is to be added, rather than a typing slip.
+	NewSpeakers []string `json:"newSpeakers,omitempty"`
+	Series      string   `json:"series"`
+	NewSeries   bool     `json:"newSeries,omitempty"`
+	Passage     string   `json:"passage"`
+	Podcast     bool     `json:"podcast"`
+	VideoURL    string   `json:"videoUrl"`
+	// Image is a link to, or the ID of, an image already on the site. Empty
+	// means the image of the latest talk in the same series.
+	Image string `json:"image"`
+	// Source says where the details were first filled in from.
+	Source string `json:"source,omitempty"`
+}
+
+// PublishProgress is what an upload has created on the website so far, so
+// that a failed one carries on without creating anything twice.
+type PublishProgress struct {
+	// Speakers and Series are the names the upload added to the site's lists,
+	// with the IDs the site gave them.
+	Speakers map[string]int `json:"speakers,omitempty"`
+	Series   map[string]int `json:"series,omitempty"`
+	PostID   int            `json:"postId,omitempty"`
+	MediaID  int            `json:"mediaId,omitempty"`
+	Finished bool           `json:"finished,omitempty"`
+	Link     string         `json:"link,omitempty"`
+}
+
+// PublishInfo is the state of a service's upload to the website.
+type PublishInfo struct {
+	// Status is "running", "completed", or "failed".
+	Status    string     `json:"status"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	Site      string     `json:"site"`
+	// MP3 and MP3Finished identify the export that was uploaded, so that an
+	// MP3 made again afterwards is recognised as not being the one on the site.
+	MP3         string          `json:"mp3,omitempty"`
+	MP3Finished *time.Time      `json:"mp3Finished,omitempty"`
+	Progress    PublishProgress `json:"progress"`
+	Error       string          `json:"error,omitempty"`
 }
 
 type CaptureInfo struct {

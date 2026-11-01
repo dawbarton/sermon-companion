@@ -44,12 +44,24 @@ func readSnapshot(path, expectedID string) (*Session, error) {
 const legacySampleRate = 48_000
 
 func migrateSession(session *Session) error {
-	if session.SchemaVersion == SchemaVersion {
-		return nil
+	if session.SchemaVersion == 1 {
+		if err := migrateFromVersion1(session); err != nil {
+			return err
+		}
 	}
-	if session.SchemaVersion != 1 {
+	// Version 3 only added fields, which a version 2 session simply lacks.
+	if session.SchemaVersion == 2 {
+		session.SchemaVersion = 3
+	}
+	if session.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("no migration is available from session schema version %d", session.SchemaVersion)
 	}
+	return nil
+}
+
+// migrateFromVersion1 gives a session recorded with times in seconds the
+// frame positions that are canonical from version 2.
+func migrateFromVersion1(session *Session) error {
 	rate := session.Capture.SampleRate
 	if rate <= 0 {
 		rate = legacySampleRate
@@ -86,7 +98,7 @@ func migrateSession(session *Session) error {
 		return fmt.Errorf("migrate legacy timeline: %w", err)
 	}
 	session.Capture.SampleRate = rate
-	session.SchemaVersion = SchemaVersion
+	session.SchemaVersion = 2
 	return nil
 }
 

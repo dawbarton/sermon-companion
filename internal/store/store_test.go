@@ -336,6 +336,52 @@ func TestSchemaOneSessionMigratesTimesToFramesTransactionally(t *testing.T) {
 	}
 }
 
+func TestSchemaTwoSessionGainsTheTalkFieldsUnchanged(t *testing.T) {
+	sessions, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := sessions.Create("Morning", "Test Church", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	end := uint64(96_000)
+	session.SchemaVersion = 2
+	session.Segments = []Segment{{ID: "one", Label: "Sermon", StartFrame: 48_000, EndFrame: &end, Include: true}}
+	dir, _ := sessions.SessionDir(session.ID)
+	writeSnapshotForTest(t, filepath.Join(dir, snapshotName), session)
+
+	migrated, err := sessions.Get(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != SchemaVersion || migrated.Talk != nil || migrated.Publish != nil {
+		t.Fatalf("migrated session = schema %d, talk %v, publish %v", migrated.SchemaVersion, migrated.Talk, migrated.Publish)
+	}
+	if migrated.Segments[0].StartFrame != 48_000 || *migrated.Segments[0].EndFrame != 96_000 {
+		t.Fatalf("migration altered a segment: %#v", migrated.Segments[0])
+	}
+
+	// The new fields are kept when the session is saved and read again.
+	finished := time.Now().UTC()
+	updated, err := sessions.Update(session.ID, "talk.updated", nil, func(s *Session) error {
+		s.Talk = &Talk{Title: "Rest for the weary", Date: "2026-10-04", Speakers: []string{"A", "B"}, NewSpeakers: []string{"B"}, Podcast: true}
+		s.Publish = &PublishInfo{Status: "failed", Site: "https://example.org", MP3Finished: &finished,
+			Progress: PublishProgress{Speakers: map[string]int{"B": 12}, PostID: 40}, Error: "offline"}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reread, err := sessions.Get(updated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.Talk == nil || reread.Talk.Speakers[1] != "B" || reread.Publish == nil || reread.Publish.Progress.Speakers["B"] != 12 || reread.Publish.Progress.PostID != 40 {
+		t.Fatalf("talk and upload record after a save = %#v, %#v", reread.Talk, reread.Publish)
+	}
+}
+
 func writeSnapshotForTest(t *testing.T, path string, session *Session) {
 	t.Helper()
 	data, err := json.MarshalIndent(session, "", "  ")

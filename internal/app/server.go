@@ -97,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.patchSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
+	mux.HandleFunc("PATCH /api/sessions/{id}/talk", s.patchTalk)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)

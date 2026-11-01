@@ -35,6 +35,7 @@ type Job struct {
 	segments      []store.Segment
 	started       time.Time
 	startRevision int64
+	fingerprint   string
 	dir           string
 	input         string
 }
@@ -115,7 +116,26 @@ func (m *Master) Prepare(id string) (*Job, error) {
 	if strings.TrimSpace(begun.Church) == "" {
 		begun.Church = m.config.Church
 	}
-	return &Job{id: id, session: begun, segments: m.exportPlan(begun), started: started, startRevision: begun.Revision, dir: dir, input: input}, nil
+	return &Job{id: id, session: begun, segments: m.exportPlan(begun), started: started, startRevision: begun.Revision, fingerprint: m.fingerprint(begun), dir: dir, input: input}, nil
+}
+
+// fingerprint summarises everything about a service that goes into its MP3.
+// The talk's details for the website are edited while the MP3 is being made,
+// so a changed revision no longer means the MP3 is wrong; a changed
+// fingerprint does.
+func (m *Master) fingerprint(session *store.Session) string {
+	church := session.Church
+	if strings.TrimSpace(church) == "" {
+		church = m.config.Church
+	}
+	encoded, _ := json.Marshal(map[string]any{
+		"title":    session.Title,
+		"church":   church,
+		"gap":      gapBetweenSegments(m.config.Master, session),
+		"audio":    session.AudioFile,
+		"segments": m.exportPlan(session),
+	})
+	return string(encoded)
 }
 
 // Run performs a prepared export. Cancelling ctx stops the active FFmpeg child
@@ -211,7 +231,7 @@ func (m *Master) Run(ctx context.Context, job *Job) error {
 
 func (m *Master) readyToPublish(job *Job, outputName string) error {
 	_, err := m.store.Update(job.id, "export.ready_to_publish", map[string]any{"output": filepath.Join("exports", outputName)}, func(s *store.Session) error {
-		if s.Revision != job.startRevision || s.Export == nil || s.Export.Status != "running" {
+		if s.Export == nil || s.Export.Status != "running" || !s.Export.StartedAt.Equal(job.started) || m.fingerprint(s) != job.fingerprint {
 			return errors.New("service details changed while this MP3 was being created")
 		}
 		return nil
@@ -455,11 +475,18 @@ func segmentIDs(segments []store.Segment) []string {
 }
 
 func outputName(session *store.Session) string {
-	church := filenamePart(session.Church)
-	if church == "" {
-		church = "Church"
+	return MP3Name(session.StartedAt.In(time.Local).Format("2006-01-02"), session.Church)
+}
+
+// MP3Name is the name an MP3 is given for a service on day, YYYY-MM-DD, at
+// church. The upload names the file on the website the same way, from the
+// talk's own date and church.
+func MP3Name(day, church string) string {
+	part := filenamePart(church)
+	if part == "" {
+		part = "Church"
 	}
-	return session.StartedAt.In(time.Local).Format("2006-01-02") + "-" + church + ".mp3"
+	return day + "-" + part + ".mp3"
 }
 
 func filenamePart(value string) string {

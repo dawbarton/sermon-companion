@@ -273,7 +273,10 @@ func (s *Store) getLocked(id string) (*Session, error) {
 		return nil, err
 	}
 	if session.SchemaVersion != fromVersion {
-		payload := map[string]any{"from": fromVersion, "to": session.SchemaVersion, "assumedSampleRate": session.Capture.SampleRate}
+		payload := map[string]any{"from": fromVersion, "to": session.SchemaVersion}
+		if fromVersion == 1 {
+			payload["assumedSampleRate"] = session.Capture.SampleRate
+		}
 		if err := s.saveLocked(session, "session.schema_migrated", payload); err != nil {
 			return nil, fmt.Errorf("save migrated session: %w", err)
 		}

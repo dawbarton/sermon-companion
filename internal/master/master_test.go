@@ -81,6 +81,35 @@ func TestPrepareMakesRunningExportDurable(t *testing.T) {
 	}
 }
 
+func TestTalkDetailsMayChangeWhileTheMP3IsMade(t *testing.T) {
+	mastering, sessions, session := preparationFixture(t)
+	job, err := mastering.Prepare(session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The website's details are filled in while the MP3 is being made, and
+	// none of them is in it.
+	if _, err := sessions.Update(session.ID, "talk.updated", nil, func(s *store.Session) error {
+		s.Talk = &store.Talk{Title: "Rest for the weary", Speakers: []string{"Someone"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mastering.readyToPublish(job, "out.mp3"); err != nil {
+		t.Fatalf("a talk edit stopped the MP3 being published: %v", err)
+	}
+	// Anything that is in the MP3 still stops it.
+	if _, err := sessions.Update(session.ID, "test.retitle", nil, func(s *store.Session) error {
+		s.Title = "Something else"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mastering.readyToPublish(job, "out.mp3"); err == nil {
+		t.Fatal("an MP3 whose title changed while it was made was published")
+	}
+}
+
 func TestPrepareWithoutSegmentsUsesTheEntireRecording(t *testing.T) {
 	mastering, sessions, session := preparationFixture(t)
 	if _, err := sessions.Update(session.ID, "test.remove_segments", nil, func(s *store.Session) error {
