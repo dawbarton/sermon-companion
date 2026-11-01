@@ -150,9 +150,13 @@ recording in progress safely first.
 RECOVERY
 
 If the computer or application stops during a recording, restart Sermon
-Companion. It marks the session as "interrupted", retains the partial FLAC, and
-closes an open segment at the last valid audio sample. Review the end time before
-exporting.
+Companion. It marks the session as "interrupted", retains the partial FLAC,
+measures how much audio reached the file, and closes an open segment at the last
+valid audio sample. Rather less audio usually reaches the file than was
+recorded, because the encoder had not written its last few seconds, so a segment
+marked just before the interruption may be shortened or removed; removed
+segments can be restored from the review page. The review page explains what
+happened above the player. Review the end times before exporting.
 
 
 IMPORTANT HARDWARE TEST

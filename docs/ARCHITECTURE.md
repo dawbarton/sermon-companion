@@ -228,8 +228,34 @@ are reported rather than partially converted.
 
 Start-up recovery checks both the published `audio.flac` and the staging
 `audio.part.flac`. It retains whichever valid recording exists, repairs the
-snapshot's filename and duration, and reports missing or unprobeable audio
+snapshot's filename and duration, and reports missing or unmeasurable audio
 explicitly rather than inventing a wall-clock duration.
+
+Measuring that duration takes two steps, because a FLAC written by an
+interrupted encoder never received the total sample count that is recorded when
+the file is closed: FFprobe reports its length as `N/A`. The container query is
+tried first, being instant and exact for a recording that was closed normally,
+and a recording it cannot answer for is decoded with `ffmpeg -f null` and
+measured from the position reported through `-progress`. The decode tolerates
+the torn final frame and whatever exit status follows it, and is bounded so that
+a damaged file cannot hold up start-up.
+
+The frame counts in a snapshot describe a finished capture, so a recording that
+has only just started records none: the miniaudio backend returns only once the
+first audio callback has run, and persisting its counters there would describe a
+fraction of a second of audio as though it were the whole service. Recovery
+replaces them with the measured ones whatever the measurement found, zero
+included. Zero means the length is unknown rather than nil, and an unknown
+length is treated as unbounded, so segment editing stays open against the
+waveform, which is decoded from the audio itself. The frame clock runs a little
+ahead of the encoder, so recovery also closes any segment left open at the
+measured end, trims an end that overruns it, and archives, reversibly, a segment
+that begins beyond the audio that survived.
+
+A service recovered by an earlier version, before an unclosed FLAC could be
+measured, kept the frame count written when its recording began and so rejected
+every segment the operator had marked. Start-up measures such a service again
+and records the result as a `capture.length_remeasured` event.
 
 A lossless recording is roughly 500 MB for a service, so the application applies
 a retention period at start-up: a session directory is deleted outright once the

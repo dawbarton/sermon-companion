@@ -2,7 +2,7 @@
 const {api, formatTime, parseTime, suggestSegmentRange, splittableSegmentAt} = window.SC;
 const elementIDs = [
   "session-list", "empty", "detail", "session-details", "session-title", "church",
-  "session-meta", "audio", "open-folder",
+  "session-meta", "session-notice", "audio", "open-folder",
   "waveform-viewport", "waveform-canvas", "segment-overlay", "playhead",
   "waveform-loading", "waveform-range", "pan-left", "pan-right", "zoom-in",
   "zoom-out", "zoom-full", "segments", "markers", "add-marker", "marker-label",
@@ -24,6 +24,18 @@ let selectionToken = 0;
 // Enough of a segment to hear whether its edge is in the right place, without
 // waiting through the middle of a sermon to reach the end.
 const previewSeconds = 5;
+
+// A recording that could not be measured has no stored length, but the
+// waveform is decoded from the audio itself and does. Showing that instead of
+// a bare 0:00.0 tells the operator how much audio there actually is, and says
+// where the figure came from so it is not mistaken for the stored one.
+function sessionLength(session) {
+  if (session.durationSeconds > 0) return formatTime(session.durationSeconds, true);
+  if (waveform.sessionID === session.id && waveform.peaks && waveform.duration > 0) {
+    return `about ${formatTime(waveform.duration, true)} of audio, length not recorded`;
+  }
+  return "length not recorded";
+}
 
 function emptyWaveform() {
   return {sessionID: null, peaks: null, pointsPerSecond: 20, duration: 0, viewStart: 0, viewEnd: 1, loading: false};
@@ -140,6 +152,9 @@ async function loadWaveform(id) {
     for (let i = 0; i < binary.length; i++) peaks[i] = binary.charCodeAt(i);
     const duration = Math.max(data.durationSeconds || 0, current.durationSeconds || 0, 1);
     waveform = {sessionID: id, peaks, pointsPerSecond: data.pointsPerSecond, duration, viewStart: 0, viewEnd: duration, loading: false};
+    // The measured length is what a service with no recorded one is described
+    // by, so the heading is written again now that it is known.
+    renderSessionMeta();
     renderWaveform();
   } catch (error) {
     if (current?.id !== id) return;
@@ -147,6 +162,17 @@ async function loadWaveform(id) {
     elements["waveform-loading"].textContent = `Waveform unavailable: ${error.message}`;
     elements["waveform-loading"].classList.remove("hidden");
   }
+}
+
+function renderSessionMeta() {
+  if (!current) return;
+  const capture = current.capture || {};
+  const captureText = capture.sampleRate ? ` · ${capture.sampleRate/1000} kHz · ${capture.droppedFrames || 0} dropped frames` : "";
+  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${sessionLength(current)} · ${current.status}${captureText}`;
+  // The application has no window of its own, so a service that could not be
+  // closed normally has to explain itself here, where the operator is already
+  // looking for the reason its times look wrong.
+  elements["session-notice"].textContent = current.error || "";
 }
 
 function render() {
@@ -157,9 +183,7 @@ function render() {
     elements["session-title"].value = current.title;
     elements.church.value = current.church || "Church";
   }
-  const capture = current.capture || {};
-  const captureText = capture.sampleRate ? ` · ${capture.sampleRate/1000} kHz · ${capture.droppedFrames || 0} dropped frames` : "";
-  elements["session-meta"].textContent = `${new Date(current.startedAt).toLocaleString()} · ${formatTime(current.durationSeconds, true)} · ${current.status}${captureText}`;
+  renderSessionMeta();
   const wanted = audioSourceFor(current);
   if (wanted !== audioSource) {
     audioSource = wanted;
