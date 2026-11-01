@@ -81,7 +81,7 @@ func TestRemoveDeletesExactlyTheRecordedIDs(t *testing.T) {
 		}
 		w.Write([]byte(`{"deleted":true}`))
 	})
-	if err := Remove(context.Background(), client, Progress{SpeakerID: 740, PostID: 500, MediaID: 501}); err != nil {
+	if err := Remove(context.Background(), client, Progress{Speakers: map[string]int{"Ruth Visiting": 740}, PostID: 500, MediaID: 501}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"DELETE /wp-json/wp/v2/media/501?force=true", "DELETE /wp-json/wp/v2/resource/500?"}

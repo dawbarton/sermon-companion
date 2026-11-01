@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/dawbarton/sermon-companion/internal/master"
 )
 
 // The taxonomies a talk is filed under, by their REST bases on the site.
@@ -22,171 +24,168 @@ const (
 	bookTaxonomy    = "bible_book"
 )
 
-// Talk is what the operator says about a talk. Everything else comes from the
-// session or from the site.
-type Talk struct {
-	Title string `json:"title"`
-	// Speaker and Series are names, matched against the site's lists.
-	Speaker string `json:"speaker"`
-	Series  string `json:"series,omitempty"`
-	// NewSpeaker and NewSeries allow a name that is not on the site yet.
-	NewSpeaker bool `json:"newSpeaker,omitempty"`
-	NewSeries  bool `json:"newSeries,omitempty"`
-	// Passage is shown on the site as typed; the books are read from it.
-	Passage string `json:"passage,omitempty"`
-}
-
 // Options are the choices made for this upload rather than for this talk.
 type Options struct {
-	Status  string // "publish", "private", or "draft"
-	Podcast bool   // whether the talk goes into the site's podcast feed
-	Type    string // the resource-type term, normally "Sermon"
+	Status string // "publish", "private", or "draft"
+	Type   string // the resource-type term, normally "Sermon"
 }
 
 // Plan is an upload with every term found and every value worked out, so that
 // carrying it out is a fixed sequence of requests.
 type Plan struct {
-	Title     string
-	Passage   string
-	Started   time.Time // when the service started; the talk is dated by it
-	LocalDate string    // the service's date as the site's Date field takes it
+	Title   string
+	Passage string
+	// Date is the day of the service, YYYY-MM-DD, and LocalDate the same as
+	// the site's Date field takes it. PostDate is when the talk is dated on
+	// the site, which is what its page shows.
+	Date      string
+	LocalDate string
+	PostDate  time.Time
 	Church    Term
 	Type      Term
-	Speaker   Term  // ID zero means it is to be created
-	Series    *Term // nil when there is none; ID zero means it is to be created
+	Speakers  []Term // an ID of zero means the speaker is to be created
+	Series    *Term  // nil when there is none; ID zero means it is to be created
 	Books     []Term
+	Image     Image // ID zero when the talk has no image
+	VideoURL  string
 	File      string
 	FileName  string
 	Size      int64
 	Duration  time.Duration
 	Status    string
 	Podcast   bool
+	// Duplicates are talks already filed for the same church and service.
+	Duplicates []ExistingTalk
 }
 
 var statuses = map[string]bool{"publish": true, "private": true, "draft": true}
 
-// Prepare looks the talk's terms up on the site and returns the plan, with any
+// FetchLists reads the site's current lists.
+func FetchLists(ctx context.Context, c *Client) (Lists, error) {
+	var lists Lists
+	for _, list := range []struct {
+		taxonomy string
+		into     *[]Term
+	}{
+		{churchTaxonomy, &lists.Churches},
+		{typeTaxonomy, &lists.Types},
+		{speakerTaxonomy, &lists.Speakers},
+		{seriesTaxonomy, &lists.Series},
+		{bookTaxonomy, &lists.Books},
+	} {
+		terms, err := c.Terms(ctx, list.taxonomy)
+		if err != nil {
+			return Lists{}, err
+		}
+		*list.into = terms
+	}
+	return lists, nil
+}
+
+// Prepare looks the talk up on the site and returns the plan, with any
 // warnings the operator should read before it is carried out. It only reads.
+// An empty date or church in the talk is taken from the session.
 func Prepare(ctx context.Context, c *Client, export *Export, talk Talk, opts Options, duration time.Duration) (*Plan, []string, error) {
 	if !statuses[opts.Status] {
 		return nil, nil, fmt.Errorf("the status must be publish, private, or draft, not %q", opts.Status)
 	}
-	if strings.TrimSpace(talk.Title) == "" {
-		return nil, nil, errors.New("the talk needs a title")
+	started := export.Session.StartedAt
+	if strings.TrimSpace(talk.Date) == "" {
+		talk.Date = started.In(time.Local).Format("2006-01-02")
 	}
-	if strings.TrimSpace(talk.Speaker) == "" {
-		return nil, nil, errors.New("the talk needs a speaker")
+	day, err := time.ParseInLocation("2006-01-02", talk.Date, time.Local)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the talk's date %q is not a day such as 2026-11-01", talk.Date)
 	}
-	if strings.TrimSpace(opts.Type) == "" {
-		opts.Type = "Sermon"
+	if strings.TrimSpace(talk.Church) == "" {
+		talk.Church = export.Session.Church
 	}
-	var warnings []string
 
-	books, err := PassageBooks(talk.Passage)
+	lists, err := FetchLists(ctx, c)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(books) == 0 {
-		warnings = append(warnings, "There is no Bible passage, so the talk will not be filed under any book.")
+	review := ReviewTalk(lists, talk, opts.Type)
+	if len(review.Problems) > 0 {
+		return nil, nil, errors.New(strings.Join(review.Problems, " "))
 	}
-
-	lists := make(map[string][]Term)
-	for _, taxonomy := range []string{churchTaxonomy, typeTaxonomy, speakerTaxonomy, seriesTaxonomy, bookTaxonomy} {
-		if lists[taxonomy], err = c.Terms(ctx, taxonomy); err != nil {
-			return nil, nil, err
-		}
-	}
+	warnings := review.Warnings
 
 	plan := &Plan{
 		Title:     strings.TrimSpace(talk.Title),
 		Passage:   strings.TrimSpace(talk.Passage),
-		Started:   export.Session.StartedAt,
-		LocalDate: export.Session.StartedAt.In(time.Local).Format("20060102"),
+		Date:      talk.Date,
+		LocalDate: day.Format("20060102"),
+		PostDate:  postDate(day, started),
+		Church:    review.church,
+		Type:      review.kind,
+		Books:     review.books,
+		VideoURL:  strings.TrimSpace(talk.VideoURL),
 		File:      export.Path,
-		FileName:  export.Name,
-		Size:      export.Size,
-		Duration:  duration,
-		Status:    opts.Status,
-		Podcast:   opts.Podcast,
+		// The file is named on the site from the talk's own date and church,
+		// which may have been corrected after the MP3 was made.
+		FileName: master.MP3Name(talk.Date, review.church.Name),
+		Size:     export.Size,
+		Duration: duration,
+		Status:   opts.Status,
+		Podcast:  talk.Podcast,
 	}
-	if plan.Church, err = existing(lists[churchTaxonomy], export.Session.Church, "church"); err != nil {
-		return nil, nil, err
+	for _, speaker := range review.Speakers {
+		plan.Speakers = append(plan.Speakers, speaker.term)
 	}
-	if plan.Type, err = existing(lists[typeTaxonomy], opts.Type, "resource type"); err != nil {
-		return nil, nil, err
+	if review.Series != nil {
+		series := review.Series.term
+		plan.Series = &series
 	}
-	var warning string
-	if plan.Speaker, warning, err = choose(lists[speakerTaxonomy], talk.Speaker, talk.NewSpeaker, "speaker", "newSpeaker"); err != nil {
-		return nil, nil, err
-	}
-	warnings = appendNonEmpty(warnings, warning)
-	if strings.TrimSpace(talk.Series) != "" {
-		series, warning, err := choose(lists[seriesTaxonomy], talk.Series, talk.NewSeries, "series", "newSeries")
+
+	if strings.TrimSpace(talk.Image) != "" {
+		if plan.Image, err = c.FindImage(ctx, talk.Image); err != nil {
+			return nil, nil, err
+		}
+	} else if plan.Series != nil && plan.Series.ID != 0 {
+		id, err := c.SeriesImage(ctx, plan.Series.ID, plan.Type.ID)
 		if err != nil {
 			return nil, nil, err
 		}
-		plan.Series = &series
-		warnings = appendNonEmpty(warnings, warning)
+		if id != 0 {
+			if plan.Image, err = c.MediaImage(ctx, id); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
-	if plan.Books, err = BookTerms(books, lists[bookTaxonomy]); err != nil {
+	if plan.Image.ID == 0 {
+		warnings = append(warnings, "The talk will have no image.")
+	}
+
+	if plan.Duplicates, err = c.TalksOn(ctx, plan.Church.ID, plan.Type.ID, plan.Date); err != nil {
 		return nil, nil, err
 	}
-	if !plan.Podcast {
-		warnings = append(warnings, "The talk will be left out of the podcast feed.")
+	for _, duplicate := range plan.Duplicates {
+		warnings = append(warnings, fmt.Sprintf("The website already has a talk for %s on this day: %q, %s.", plan.Church.Name, duplicate.Title, duplicate.Link))
 	}
 	return plan, warnings, nil
+}
+
+// postDate is when the talk is dated on the site. It is the start of the
+// recording when the talk is for that day; a corrected date keeps the
+// recording's time of day.
+func postDate(day, started time.Time) time.Time {
+	local := started.In(time.Local)
+	return time.Date(day.Year(), day.Month(), day.Day(), local.Hour(), local.Minute(), local.Second(), 0, time.Local)
 }
 
 // existing finds a term that must already be on the site.
 func existing(terms []Term, name, what string) (Term, error) {
 	match := MatchTerm(terms, name)
 	if match.Exact == nil {
-		return Term{}, fmt.Errorf("the site has no %s called %q%s", what, name, suggest(match.Near))
+		names := make([]string, len(match.Near))
+		for i, term := range match.Near {
+			names[i] = term.Name
+		}
+		if len(names) > 0 {
+			return Term{}, fmt.Errorf("the website has no %s called %q; did you mean %s?", what, strings.TrimSpace(name), quotedList(names))
+		}
+		return Term{}, fmt.Errorf("the website has no %s called %q", what, strings.TrimSpace(name))
 	}
 	return *match.Exact, nil
-}
-
-// choose finds a speaker or series, or accepts a new one when the operator has
-// said it is new. A new name close to an existing one is allowed, since two
-// people can have similar names, but it is reported.
-func choose(terms []Term, name string, allowNew bool, what, flag string) (Term, string, error) {
-	match := MatchTerm(terms, name)
-	if match.Exact != nil {
-		return *match.Exact, "", nil
-	}
-	if !allowNew {
-		return Term{}, "", fmt.Errorf("the site has no %s called %q%s. If it is new, set %q to true in the talk's details",
-			what, strings.TrimSpace(name), suggest(match.Near), flag)
-	}
-	created := Term{Name: strings.TrimSpace(name)}
-	if len(match.Near) == 0 {
-		return created, fmt.Sprintf("The %s %q is new and will be added to the site.", what, created.Name), nil
-	}
-	return created, fmt.Sprintf("The %s %q is new and will be added to the site, which already has %s. Check it is not one of those.",
-		what, created.Name, quotedNames(match.Near)), nil
-}
-
-func suggest(near []Term) string {
-	if len(near) == 0 {
-		return ""
-	}
-	return "; did you mean " + quotedNames(near) + "?"
-}
-
-func quotedNames(terms []Term) string {
-	names := make([]string, len(terms))
-	for i, term := range terms {
-		names[i] = fmt.Sprintf("%q", term.Name)
-	}
-	if len(names) == 1 {
-		return names[0]
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
-}
-
-func appendNonEmpty(list []string, item string) []string {
-	if item == "" {
-		return list
-	}
-	return append(list, item)
 }

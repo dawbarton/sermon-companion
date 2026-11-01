@@ -66,12 +66,15 @@ func testPlan(t *testing.T) *Plan {
 	return &Plan{
 		Title:     "The Lord's Prayer: Our Father's protection",
 		Passage:   "Matthew 6:13, Ezekiel 36:22-27",
-		Started:   time.Date(2026, 9, 13, 9, 30, 0, 0, time.UTC),
+		Date:      "2026-09-13",
+		PostDate:  time.Date(2026, 9, 13, 9, 30, 0, 0, time.UTC),
 		LocalDate: "20260913",
 		Church:    Term{ID: 128},
 		Type:      Term{ID: 270},
-		Speaker:   Term{Name: "Ruth Visiting"}, // new
+		Speakers:  []Term{{ID: 296, Name: "Jim Walford"}, {Name: "Ruth Visiting"}}, // the second is new
 		Series:    &Term{ID: 736},
+		Image:     Image{ID: 15668},
+		VideoURL:  "https://www.youtube.com/watch?v=PMp7GTq8a34",
 		Books:     []Term{{ID: 239}, {ID: 225}},
 		File:      file,
 		FileName:  "2026-09-13-Emmanuel-Bishopston.mp3",
@@ -105,7 +108,8 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 	for field, wantValue := range map[string]any{
 		"status":   "draft",
 		"date_gmt": "2026-09-13T09:30:00",
-		"title":    plan.Title,
+		"title":          plan.Title,
+		"featured_media": 15668.0,
 	} {
 		if draft[field] != wantValue {
 			t.Errorf("draft %s = %v, want %v", field, draft[field], wantValue)
@@ -114,7 +118,7 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 	for field, wantValue := range map[string]any{
 		"resource-church":      []any{128.0},
 		"resource-type":        []any{270.0},
-		"resource-contributor": []any{740.0}, // the speaker just created
+		"resource-contributor": []any{296.0, 740.0}, // the second just created
 		"resource-series":      []any{736.0},
 		"bible_book":           []any{239.0, 225.0},
 	} {
@@ -123,12 +127,16 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 		}
 	}
 	if acf["resource_date"] != "20260913" || acf["resource_type"] != 270.0 ||
-		acf["resource_bible_passages"] != plan.Passage || acf["resource_include_in_podcast_feed"] != "Yes" {
+		acf["resource_bible_passages"] != plan.Passage || acf["resource_include_in_podcast_feed"] != "Yes" ||
+		acf["resource_video_source"] != "YouTube" || acf["resource_youtube_url"] != plan.VideoURL {
 		t.Errorf("draft acf = %v", acf)
+	}
+	if _, ok := acf["resource_audio"]; ok {
+		t.Errorf("the draft has audio before it is uploaded: %v", acf)
 	}
 
 	upload := sender.calls[2]
-	if upload.query.Get("post") != "15944" || upload.body != "2026-09-13-Emmanuel-Bishopston.mp3 audio/mpeg ID3 audio" {
+	if upload.query.Get("post") != "15944" || upload.query.Get("title") != plan.Title || upload.body != "2026-09-13-Emmanuel-Bishopston.mp3 audio/mpeg ID3 audio" {
 		t.Errorf("upload = %+v", upload)
 	}
 
@@ -139,12 +147,19 @@ func TestRunMakesTheRequestsInOrderWithTheSitesFields(t *testing.T) {
 		info["resource_audio_file_size"] != 9.0 || info["resource_audio_duration"] != "00:31:12" {
 		t.Errorf("finish = %v", finish)
 	}
+	// The last request repeats every detail, so a correction made before a
+	// retry is what is published.
+	for _, field := range []string{"title", "date_gmt", "featured_media", "resource-church", "resource-contributor", "resource-series", "bible_book"} {
+		if !reflect.DeepEqual(finish[field], draft[field]) {
+			t.Errorf("finish %s = %v, draft %v", field, finish[field], draft[field])
+		}
+	}
 
 	if len(saved) != 4 {
 		t.Fatalf("progress saved %d times, want once per step", len(saved))
 	}
 	final := saved[len(saved)-1]
-	if final.SpeakerID != 740 || final.PostID != 15944 || final.MediaID != 15945 || !final.Finished || final.Link == "" {
+	if final.Speakers["Ruth Visiting"] != 740 || final.PostID != 15944 || final.MediaID != 15945 || !final.Finished || final.Link == "" {
 		t.Errorf("final progress = %+v", final)
 	}
 }
@@ -157,7 +172,7 @@ func TestRunResumesWithoutCreatingAnythingTwice(t *testing.T) {
 	if !IsKind(err, KindTimeout) {
 		t.Fatalf("error = %v, want the upload's timeout", err)
 	}
-	if progress.SpeakerID != 740 || progress.PostID != 15944 || progress.MediaID != 0 {
+	if progress.Speakers["Ruth Visiting"] != 740 || progress.PostID != 15944 || progress.MediaID != 0 {
 		t.Fatalf("progress after the failure = %+v", progress)
 	}
 
@@ -172,7 +187,7 @@ func TestRunResumesWithoutCreatingAnythingTwice(t *testing.T) {
 
 func TestRunLeavesTheSeriesEmptyWhenThereIsNone(t *testing.T) {
 	plan := testPlan(t)
-	plan.Series, plan.Speaker = nil, Term{ID: 296}
+	plan.Series, plan.Speakers = nil, []Term{{ID: 296}}
 	sender := &recorder{}
 	if err := Run(context.Background(), sender, plan, &Progress{}, nil); err != nil {
 		t.Fatal(err)
@@ -189,7 +204,7 @@ func TestRunStopsIfProgressCannotBeSaved(t *testing.T) {
 	sender := &recorder{}
 	broken := errors.New("disk full")
 	err := Run(context.Background(), sender, testPlan(t), &Progress{}, func(Progress) error { return broken })
-	if !errors.Is(err, broken) || len(sender.calls) != 1 {
+	if !errors.Is(err, broken) || len(sender.calls) != 1 || sender.calls[0].kind != "term" {
 		t.Errorf("error %v after %d requests; an unrecorded ID must stop the upload at once", err, len(sender.calls))
 	}
 }

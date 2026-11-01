@@ -72,6 +72,11 @@ type PublishProgress struct {
 	Link     string         `json:"link,omitempty"`
 }
 
+// Empty reports whether nothing has been created yet.
+func (p PublishProgress) Empty() bool {
+	return len(p.Speakers) == 0 && len(p.Series) == 0 && p.PostID == 0 && p.MediaID == 0 && !p.Finished
+}
+
 // PublishInfo is the state of a service's upload to the website.
 type PublishInfo struct {
 	// Status is "running", "completed", or "failed".

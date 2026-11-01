@@ -1,6 +1,6 @@
 // Command sermon-publish uploads a finished Sermon Companion session to the
-// church website as a talk: the MP3, its title, speaker, series, and Bible
-// passage. It is the standalone stage of automatic upload described in
+// church website as a talk: the MP3, its title, speakers, series, Bible
+// passage, image, and video. It is the standalone stage of automatic upload described in
 // docs/SERMON-UPLOAD-DESIGN.md. It reads a session folder and a small file of
 // talk details, and never writes into the session, so that the website side can
 // be got wrong repeatedly on a weekday without any risk to Sunday.
@@ -13,17 +13,20 @@
 //	  -session "$HOME/Library/Application Support/Sermon Companion/sessions/<id>" \
 //	  -talk work/talk.json -status private -podcast=false
 //
-// The talk file holds what only the operator knows:
+// The talk file holds the details the review page's upload page collects:
 //
 //	{
 //	  "title": "The Lord's Prayer: Our Father's protection",
-//	  "speaker": "Jim Walford",
+//	  "speakers": ["Jim Walford"],
 //	  "series": "The Lord's Prayer (EB)",
-//	  "passage": "Matthew 6:13, Ezekiel 36:22-27"
+//	  "passage": "Matthew 6:13, Ezekiel 36:22-27",
+//	  "videoUrl": "https://www.youtube.com/watch?v=PMp7GTq8a34"
 //	}
 //
-// A speaker or series not yet on the site needs "newSpeaker": true or
-// "newSeries": true, so that a typing slip cannot add a duplicate.
+// "date" and "church" default to the session's, and "image" to the image of
+// the series' latest talk. A speaker or series not yet on the site must be
+// listed in "newSpeakers" or have "newSeries": true, so that a typing slip
+// cannot add a duplicate.
 //
 // -dry-run prints the requests without making them. Otherwise the command asks
 // for "yes" before changing anything, unless -yes is given. Every ID the site
@@ -78,9 +81,9 @@ func run(ctx context.Context, args []string, env environment) error {
 	user := flags.String("user", "", "WordPress user name or email address the application password belongs to")
 	passwordFile := flags.String("password-file", "", "file holding the application password")
 	sessionDir := flags.String("session", "", "the session folder to upload from")
-	talkFile := flags.String("talk", "", "JSON file of the talk's title, speaker, series, and passage")
+	talkFile := flags.String("talk", "", "JSON file of the talk's title, speakers, series, passage, and so on")
 	status := flags.String("status", "", "publish, private, or draft; there is deliberately no default")
-	podcast := flags.Bool("podcast", true, "include the talk in the site's podcast feed")
+	podcast := flags.Bool("podcast", true, "include the talk in the site's podcast feed; this overrides the talk file")
 	ffprobe := flags.String("ffprobe", "ffprobe", "FFprobe program, used to read the MP3's duration")
 	stateDir := flags.String("state-dir", filepath.Join("work", "publish-state"), "folder for the records that let a failed upload resume")
 	timeout := flags.Duration("timeout", 30*time.Minute, "time allowed for the whole upload")
@@ -137,6 +140,7 @@ func run(ctx context.Context, args []string, env environment) error {
 	if err != nil {
 		return err
 	}
+	talk.Podcast = *podcast
 	if !account.Capabilities["upload_files"] {
 		return errors.New("the account may not upload files")
 	}
@@ -151,7 +155,7 @@ func run(ctx context.Context, args []string, env environment) error {
 	if err != nil {
 		return err
 	}
-	plan, warnings, err := publish.Prepare(ctx, client, export, talk, publish.Options{Status: *status, Podcast: *podcast}, duration)
+	plan, warnings, err := publish.Prepare(ctx, client, export, talk, publish.Options{Status: *status}, duration)
 	if err != nil {
 		return err
 	}
@@ -189,7 +193,7 @@ func run(ctx context.Context, args []string, env environment) error {
 		return rec.save(path)
 	}
 	if err := publish.Run(ctx, client, plan, &rec.Progress, save); err != nil {
-		if rec.Progress != (publish.Progress{}) {
+		if !rec.Progress.Empty() {
 			return fmt.Errorf("%w\nWhat was created so far is recorded in %s; run the same command again to carry on from there", err, path)
 		}
 		return err
@@ -215,7 +219,7 @@ func removeUpload(ctx context.Context, env environment, answers *bufio.Scanner, 
 		if p.MediaID != 0 {
 			fmt.Fprintf(env.out, "  the MP3, ID %d, permanently: WordPress keeps no bin for files\n", p.MediaID)
 		}
-		if p.SpeakerID != 0 || p.SeriesID != 0 {
+		if len(p.Speakers) > 0 || len(p.Series) > 0 {
 			fmt.Fprintln(env.out, "A speaker or series the upload added is kept.")
 		}
 		if !confirm(env.out, answers, "Type delete to go ahead: ", "delete") {
@@ -244,8 +248,8 @@ func confirm(out io.Writer, answers *bufio.Scanner, prompt, word string) bool {
 }
 
 // readTalk reads the talk file, refusing keys it does not know so that a
-// misspelt key such as "newSpeeker" is caught rather than silently ignored.
-// Keys are matched regardless of case, so "newspeaker" is read as "newSpeaker".
+// misspelt key such as "newSpeekers" is caught rather than silently ignored.
+// Keys are matched regardless of case, so "newspeakers" is read as "newSpeakers".
 func readTalk(path string) (publish.Talk, error) {
 	var talk publish.Talk
 	data, err := os.ReadFile(path)
@@ -268,6 +272,10 @@ func describe(out io.Writer, plan *publish.Plan) {
 		}
 		return term.Name
 	}
+	speakers := make([]string, len(plan.Speakers))
+	for i, speaker := range plan.Speakers {
+		speakers[i] = termName(speaker)
+	}
 	series := "none"
 	if plan.Series != nil {
 		series = termName(*plan.Series)
@@ -275,6 +283,14 @@ func describe(out io.Writer, plan *publish.Plan) {
 	books := make([]string, len(plan.Books))
 	for i, book := range plan.Books {
 		books[i] = book.Name
+	}
+	image := "none"
+	if plan.Image.ID != 0 {
+		image = fmt.Sprintf("%s (ID %d)", plan.Image.Title, plan.Image.ID)
+	}
+	video := plan.VideoURL
+	if video == "" {
+		video = "none"
 	}
 	podcast := "yes"
 	if !plan.Podcast {
@@ -284,14 +300,16 @@ func describe(out io.Writer, plan *publish.Plan) {
 Title:    %s
 Date:     %s
 Church:   %s
-Speaker:  %s
+Speakers: %s
 Series:   %s
 Passage:  %s
 Books:    %s
+Image:    %s
+Video:    %s
 MP3:      %s, %.1f MB, %s
 Status:   %s
 Podcast:  %s
-`, plan.Title, plan.Started.In(time.Local).Format("Monday 2 January 2006, 15:04"), plan.Church.Name,
-		termName(plan.Speaker), series, plan.Passage, strings.Join(books, ", "),
+`, plan.Title, plan.PostDate.In(time.Local).Format("Monday 2 January 2006, 15:04"), plan.Church.Name,
+		strings.Join(speakers, ", "), series, plan.Passage, strings.Join(books, ", "), image, video,
 		plan.FileName, float64(plan.Size)/1e6, plan.Duration.Round(time.Second), plan.Status, podcast)
 }

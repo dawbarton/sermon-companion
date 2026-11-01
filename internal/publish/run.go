@@ -21,14 +21,16 @@ import (
 
 // The site's ACF field names, from the resource schema read on 1 November 2026.
 const (
-	fieldDate      = "resource_date"
-	fieldType      = "resource_type"
-	fieldPassage   = "resource_bible_passages"
-	fieldPodcast   = "resource_include_in_podcast_feed"
-	fieldAudio     = "resource_audio"
-	fieldAudioInfo = "resource_audio_info"
-	fieldAudioSize = "resource_audio_file_size"
-	fieldAudioTime = "resource_audio_duration"
+	fieldDate        = "resource_date"
+	fieldType        = "resource_type"
+	fieldPassage     = "resource_bible_passages"
+	fieldPodcast     = "resource_include_in_podcast_feed"
+	fieldAudio       = "resource_audio"
+	fieldAudioInfo   = "resource_audio_info"
+	fieldAudioSize   = "resource_audio_file_size"
+	fieldAudioTime   = "resource_audio_duration"
+	fieldVideoSource = "resource_video_source"
+	fieldVideoURL    = "resource_youtube_url"
 )
 
 // Sender makes the requests that change the site: the real Client, or a
@@ -37,16 +39,6 @@ type Sender interface {
 	CreateTerm(ctx context.Context, restBase, name string) (Term, error)
 	SendJSON(ctx context.Context, op, method, route string, query url.Values, payload, out any) error
 	UploadFile(ctx context.Context, op, route string, query url.Values, filename, contentType string, content io.Reader, size int64, out any) error
-}
-
-// Progress records what an upload has created on the site so far.
-type Progress struct {
-	SpeakerID int    `json:"speakerId,omitempty"`
-	SeriesID  int    `json:"seriesId,omitempty"`
-	PostID    int    `json:"postId,omitempty"`
-	MediaID   int    `json:"mediaId,omitempty"`
-	Finished  bool   `json:"finished,omitempty"`
-	Link      string `json:"link,omitempty"`
 }
 
 // Run carries out plan, skipping whatever progress says is already done, and
@@ -58,39 +50,41 @@ func Run(ctx context.Context, s Sender, plan *Plan, progress *Progress, save fun
 		}
 		return save(*progress)
 	}
-
-	speakerID := plan.Speaker.ID
-	if speakerID == 0 {
-		if progress.SpeakerID == 0 {
-			term, err := s.CreateTerm(ctx, speakerTaxonomy, plan.Speaker.Name)
-			if err != nil {
-				return err
-			}
-			progress.SpeakerID = term.ID
-			if err := record(); err != nil {
-				return err
-			}
+	// create adds a term the site does not have yet, once: the ID is recorded
+	// by name, so that a retry finds it rather than adding it again.
+	create := func(taxonomy string, term Term, created *map[string]int) (int, error) {
+		if term.ID != 0 {
+			return term.ID, nil
 		}
-		speakerID = progress.SpeakerID
+		if id, ok := (*created)[term.Name]; ok {
+			return id, nil
+		}
+		made, err := s.CreateTerm(ctx, taxonomy, term.Name)
+		if err != nil {
+			return 0, err
+		}
+		if *created == nil {
+			*created = map[string]int{}
+		}
+		(*created)[term.Name] = made.ID
+		return made.ID, record()
 	}
 
-	var seriesIDs []int
-	if plan.Series != nil {
-		seriesID := plan.Series.ID
-		if seriesID == 0 {
-			if progress.SeriesID == 0 {
-				term, err := s.CreateTerm(ctx, seriesTaxonomy, plan.Series.Name)
-				if err != nil {
-					return err
-				}
-				progress.SeriesID = term.ID
-				if err := record(); err != nil {
-					return err
-				}
-			}
-			seriesID = progress.SeriesID
+	speakerIDs := make([]int, 0, len(plan.Speakers))
+	for _, speaker := range plan.Speakers {
+		id, err := create(speakerTaxonomy, speaker, &progress.Speakers)
+		if err != nil {
+			return err
 		}
-		seriesIDs = []int{seriesID}
+		speakerIDs = append(speakerIDs, id)
+	}
+	seriesIDs := []int{}
+	if plan.Series != nil {
+		id, err := create(seriesTaxonomy, *plan.Series, &progress.Series)
+		if err != nil {
+			return err
+		}
+		seriesIDs = append(seriesIDs, id)
 	}
 
 	if progress.PostID == 0 {
@@ -98,7 +92,7 @@ func Run(ctx context.Context, s Sender, plan *Plan, progress *Progress, save fun
 			ID int `json:"id"`
 		}
 		if err := s.SendJSON(ctx, "creating the talk", http.MethodPost, "/wp/v2/resource", nil,
-			draftPayload(plan, speakerID, seriesIDs), &created); err != nil {
+			talkPayload(plan, speakerIDs, seriesIDs, "draft", 0), &created); err != nil {
 			return err
 		}
 		if created.ID == 0 {
@@ -118,8 +112,10 @@ func Run(ctx context.Context, s Sender, plan *Plan, progress *Progress, save fun
 		var media struct {
 			ID int `json:"id"`
 		}
-		err = s.UploadFile(ctx, "uploading the MP3", "/wp/v2/media", url.Values{"post": {strconv.Itoa(progress.PostID)}},
-			plan.FileName, "audio/mpeg", file, plan.Size, &media)
+		// The file is given the talk's title; otherwise WordPress takes the
+		// title from the MP3's own tag, which is the service's.
+		query := url.Values{"post": {strconv.Itoa(progress.PostID)}, "title": {plan.Title}}
+		err = s.UploadFile(ctx, "uploading the MP3", "/wp/v2/media", query, plan.FileName, "audio/mpeg", file, plan.Size, &media)
 		file.Close()
 		if err != nil {
 			return err
@@ -138,7 +134,7 @@ func Run(ctx context.Context, s Sender, plan *Plan, progress *Progress, save fun
 			Link string `json:"link"`
 		}
 		if err := s.SendJSON(ctx, "attaching the audio and setting the status", http.MethodPost,
-			"/wp/v2/resource/"+strconv.Itoa(progress.PostID), nil, finishPayload(plan, progress.MediaID), &finished); err != nil {
+			"/wp/v2/resource/"+strconv.Itoa(progress.PostID), nil, talkPayload(plan, speakerIDs, seriesIDs, plan.Status, progress.MediaID), &finished); err != nil {
 			return err
 		}
 		progress.Finished = true
@@ -150,52 +146,49 @@ func Run(ctx context.Context, s Sender, plan *Plan, progress *Progress, save fun
 	return nil
 }
 
-// draftPayload creates the talk with everything except its audio, as a draft.
-func draftPayload(plan *Plan, speakerID int, seriesIDs []int) map[string]any {
+// talkPayload is everything the site is told about the talk. The talk is
+// created as a draft with all of it but the audio, and the last request sends
+// all of it again with the audio and the final status, so that details
+// corrected between a failed attempt and its retry are what is published.
+// ACF checks every acf object against the whole field group, whose type is
+// required, so the type goes in every request.
+func talkPayload(plan *Plan, speakerIDs, seriesIDs []int, status string, mediaID int) map[string]any {
 	bookIDs := make([]int, len(plan.Books))
 	for i, book := range plan.Books {
 		bookIDs[i] = book.ID
-	}
-	if seriesIDs == nil {
-		seriesIDs = []int{}
 	}
 	podcast := "No"
 	if plan.Podcast {
 		podcast = "Yes"
 	}
-	return map[string]any{
-		"title":         plan.Title,
-		"status":        "draft",
-		"date_gmt":      plan.Started.UTC().Format("2006-01-02T15:04:05"),
-		churchTaxonomy:  []int{plan.Church.ID},
-		typeTaxonomy:    []int{plan.Type.ID},
-		speakerTaxonomy: []int{speakerID},
-		seriesTaxonomy:  seriesIDs,
-		bookTaxonomy:    bookIDs,
-		"acf": map[string]any{
-			fieldDate:    plan.LocalDate,
-			fieldType:    plan.Type.ID, // required by the field group, as one term ID
-			fieldPassage: plan.Passage,
-			fieldPodcast: podcast,
-		},
+	acf := map[string]any{
+		fieldDate:    plan.LocalDate,
+		fieldType:    plan.Type.ID,
+		fieldPassage: plan.Passage,
+		fieldPodcast: podcast,
 	}
-}
-
-// finishPayload points the Audio field at the uploaded file and sets the final
-// status in the same request. ACF checks every acf object against the whole
-// field group's schema, so the required type has to be sent again here even
-// though the draft already has it; the site refused the request without it.
-func finishPayload(plan *Plan, mediaID int) map[string]any {
+	if plan.VideoURL != "" {
+		acf[fieldVideoSource] = "YouTube"
+		acf[fieldVideoURL] = plan.VideoURL
+	}
+	if mediaID != 0 {
+		acf[fieldAudio] = mediaID
+		acf[fieldAudioInfo] = map[string]any{
+			fieldAudioSize: plan.Size,
+			fieldAudioTime: formatDuration(plan.Duration),
+		}
+	}
 	return map[string]any{
-		"status": plan.Status,
-		"acf": map[string]any{
-			fieldType:  plan.Type.ID,
-			fieldAudio: mediaID,
-			fieldAudioInfo: map[string]any{
-				fieldAudioSize: plan.Size,
-				fieldAudioTime: formatDuration(plan.Duration),
-			},
-		},
+		"title":          plan.Title,
+		"status":         status,
+		"date_gmt":       plan.PostDate.UTC().Format("2006-01-02T15:04:05"),
+		"featured_media": plan.Image.ID,
+		churchTaxonomy:   []int{plan.Church.ID},
+		typeTaxonomy:     []int{plan.Type.ID},
+		speakerTaxonomy:  speakerIDs,
+		seriesTaxonomy:   seriesIDs,
+		bookTaxonomy:     bookIDs,
+		"acf":            acf,
 	}
 }
 

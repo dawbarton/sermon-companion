@@ -59,6 +59,9 @@ func (f *fakeWordPress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && lists[path] != "":
 		w.Header().Set("X-WP-TotalPages", "1")
 		w.Write([]byte(lists[path]))
+	case r.Method == http.MethodGet && path == "/wp/v2/resource":
+		// No talk is filed for the service yet.
+		w.Write([]byte(`[]`))
 	case r.Method == http.MethodPost && path == "/wp/v2/resource":
 		json.NewDecoder(r.Body).Decode(&f.lastPost)
 		w.WriteHeader(201)
@@ -115,7 +118,7 @@ func newFixture(t *testing.T) *fixture {
 	os.WriteFile(filepath.Join(session, "session.json"), data, 0o644)
 	os.WriteFile(filepath.Join(session, "exports", "2026-09-13-Emmanuel-Bishopston.mp3"), []byte("ID3 audio"), 0o644)
 	os.WriteFile(filepath.Join(dir, "password"), []byte("abcd efgh ijkl mnop qrst uvwx\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "talk.json"), []byte(`{"title":"Test talk","speaker":"David Barton","passage":"Matthew 6:13"}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "talk.json"), []byte(`{"title":"Test talk","speakers":["David Barton"],"passage":"Matthew 6:13"}`), 0o644)
 
 	site := &fakeWordPress{deleted: map[string]bool{}}
 	server := httptest.NewTLSServer(site)
@@ -292,13 +295,13 @@ func TestDryRunChangesNothingAndWritesNoRecord(t *testing.T) {
 
 func TestReadTalkCatchesTypos(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "talk.json")
-	os.WriteFile(path, []byte(`{"title":"The Lost Sheep","speaker":"Ian Taylor","newSpeeker":true}`), 0o644)
-	if _, err := readTalk(path); err == nil || !strings.Contains(err.Error(), "newSpeeker") {
+	os.WriteFile(path, []byte(`{"title":"The Lost Sheep","speakers":["Ian Taylor"],"newSpeekers":["Ian Taylor"]}`), 0o644)
+	if _, err := readTalk(path); err == nil || !strings.Contains(err.Error(), "newSpeekers") {
 		t.Errorf("an unknown key should be reported: %v", err)
 	}
-	os.WriteFile(path, []byte(`{"title":"The Lost Sheep","speaker":"Ian Taylor","newSpeaker":true,"passage":"Luke 15:1-7"}`), 0o644)
+	os.WriteFile(path, []byte(`{"title":"The Lost Sheep","speakers":["Ian Taylor"],"newSpeakers":["Ian Taylor"],"passage":"Luke 15:1-7"}`), 0o644)
 	talk, err := readTalk(path)
-	if err != nil || !talk.NewSpeaker || talk.Passage != "Luke 15:1-7" {
+	if err != nil || len(talk.NewSpeakers) != 1 || talk.Passage != "Luke 15:1-7" {
 		t.Errorf("talk %+v, err %v", talk, err)
 	}
 }
