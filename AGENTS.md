@@ -113,6 +113,9 @@ changing user-visible behaviour or deployment.
 - Keep the operator workflow understandable to people who know basic OBS but
   are not technical users. Prefer clear controls and recoverable actions over
   exposing implementation detail.
+- `POST /api/stop-recording` stops whatever is being recorded without the
+  dock's confirmation question. It exists for automatic stops; the dock's own
+  Stop button keeps its question.
 - The dock shares a narrow, short column with other OBS docks. Before recording
   it shows the device list, Start Recording, and Review Recordings, and nothing
   else; the recording controls replace them once a service is under way. Weigh
@@ -176,6 +179,11 @@ from the log page, and from `--version` when its output is redirected.
   with the standard library or `.csv` in either of Excel's encodings, with
   columns found by heading and the row for a service chosen by date and
   service time.
+- `obs/sermon-companion.lua`: an OBS script that starts recording when OBS
+  starts streaming (or recording, if chosen) and stops when it stops. It talks
+  to the loopback API through LuaJIT's FFI, so it needs no OBS WebSocket and no
+  library. Its tests in `obs/` run it under LuaJIT against a stand-in server and
+  are skipped when `luajit` is absent.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
 - `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows
