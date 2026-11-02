@@ -26,6 +26,16 @@ depend on standard error: it is not connected, and the log tee keeps the log
 even when writing to it fails, where an `io.MultiWriter` would stop at that
 failure and lose every message.
 
+OBS reaches the application in two ways, both over the same loopback API: the
+Custom Browser Dock, and `obs/sermon-companion.lua`, an OBS script that starts
+the recording when OBS starts streaming and calls `POST /api/stop-recording`
+when it stops. OBS sends its stream events only to Browser Sources and to
+scripts, not to docks, which is why the script exists. It is Lua, built into
+OBS, rather than Python, which OBS would need installed separately, and it makes
+its requests through LuaJIT's FFI to the platform's sockets rather than by
+running curl, which would show a console window on Windows. Neither uses OBS
+WebSocket.
+
 Binding the listening socket is what detects a second copy: rather than failing
 invisibly, it opens the review page of the copy already running and exits. A
 failure that stops the application before it can serve anything is shown in a
@@ -368,7 +378,8 @@ file as current.
 
 ## Local API
 
-The UI uses a small JSON API beneath `/api`. It supports session start and stop,
+The UI uses a small JSON API beneath `/api`. It supports session start and stop
+(a named session from the dock, or whatever is recording from the OBS script),
 generic segment start, stop, and adjustment, point markers, session history,
 lossless playback, waveform-envelope generation, and asynchronous export. It also
 reports and records the chosen capture device, and serves the running log. It can
@@ -445,6 +456,7 @@ records under `work/publish-state`.
 cmd/sermon-companion/   application entry point, tray icon, and drawn icon
 cmd/sermon-publish/     the upload as a standalone command
 cmd/wp-probe/           read-only reconnaissance of a WordPress site
+obs/                    OBS script that records with the stream, and its tests
 internal/app/           local HTTP API and embedded browser UI
 internal/applog/        rolling log file and the tail the log page shows
 internal/capture/       miniaudio source, audio-frame clock, buffering, and fallback

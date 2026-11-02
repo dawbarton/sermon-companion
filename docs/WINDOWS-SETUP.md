@@ -45,6 +45,12 @@ ONE-TIME TECHNICAL SETUP
    The local address is available only on this computer. It does not expose the
    recording controls to the church network or the internet.
 
+   To have the recording start and stop with the stream, also choose Tools,
+   Scripts in OBS, click +, and pick sermon-companion.lua from the Sermon
+   Companion folder. "Follow the stream" is ticked already; tick "Follow OBS's
+   own recording" as well if the service is sometimes recorded in OBS without
+   being streamed. Leave the address as it is.
+
 3. In the dock, open the list at the top and choose the audio device associated
    with the HDMI capture. The choice is written to config.json and used again
    next time. Devices are identified by the identifier Windows gives them, not
@@ -80,7 +86,9 @@ NORMAL OPERATION
    review page. Starting it twice by mistake is harmless: the second copy opens
    the review page of the first and closes.
 2. In the OBS dock, check that the list at the top names the HDMI capture, then
-   click "Start Recording". The service is named after today's date until its
+   click "Start Recording". Where the OBS script is set up, starting the stream
+   does this instead, and stopping the stream ends the recording without the
+   usual question; the dock then shows the recording as stopped. The service is named after today's date until its
    talk is given a title on the upload page. If the list shows "Not connected", the device
    used last time is absent: choose the right one before starting. A recording
    will not begin against a device that is missing.

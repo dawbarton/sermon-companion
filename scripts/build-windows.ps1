@@ -38,6 +38,7 @@ try {
     Copy-Item "scripts\Start Sermon Companion.cmd" "dist\SermonCompanion\Start Sermon Companion.cmd"
     Copy-Item "docs\WINDOWS-SETUP.md" "dist\SermonCompanion\README.txt"
     Copy-Item "VERSION" "dist\SermonCompanion\VERSION"
+    Copy-Item "obs\sermon-companion.lua" "dist\SermonCompanion\sermon-companion.lua"
     if ($FFmpegDirectory) {
         Copy-Item (Join-Path $FFmpegDirectory "ffmpeg.exe") "dist\SermonCompanion\ffmpeg.exe"
         Copy-Item (Join-Path $FFmpegDirectory "ffprobe.exe") "dist\SermonCompanion\ffprobe.exe"

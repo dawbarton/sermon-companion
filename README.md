@@ -72,6 +72,20 @@ kept, and the times are adjusted afterwards. **Review Recordings** opens the
 review and MP3 page in your web browser, as does clicking the notification-area
 icon.
 
+### Starting with the stream
+
+`sermon-companion.lua`, in the application folder, is an OBS script that starts
+Sermon Companion's recording when OBS starts streaming and stops it when the
+stream stops, so that nobody has to remember the dock's Start Recording. Add it
+once in OBS under **Tools → Scripts** with the **+** button. Its settings there
+choose whether it follows the stream, OBS's own recording, or both; the address
+is normally left as it is. A recording already running when the stream starts
+is left alone, and the end of the stream stops whatever is being recorded,
+without the dock's confirmation question. The dock's buttons still work as
+before. What the script does, and any problem it meets, such as Sermon
+Companion not running, is written to OBS's script log (**Tools → Scripts →
+Script Log**); the dock shows the same problem by failing to load.
+
 If the device list shows **⚠ Not connected**, the device chosen last time is not
 there now. Pick the right one from the list before starting; recording will not
 begin against a device that is missing.
