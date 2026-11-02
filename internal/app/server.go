@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/talk/check", s.checkTalk)
 	mux.HandleFunc("GET /api/publish", s.publishSettings)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSession)
+	mux.HandleFunc("POST /api/stop-recording", s.stopRecording)
 	mux.HandleFunc("POST /api/sessions/{id}/segments", s.startSegment)
 	mux.HandleFunc("POST /api/sessions/{id}/segments/manual", s.addManualSegment)
 	mux.HandleFunc("PATCH /api/sessions/{id}/segments/{segmentID}", s.patchSegment)
@@ -381,6 +382,25 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("this session is not recording"))
 		return
 	}
+	s.stopActive(w)
+}
+
+// stopRecording stops whatever is being recorded. The OBS script calls it when
+// the stream ends, without knowing which service it is; the dock, which does,
+// stops a named session instead, so that a stale page cannot stop a newer one.
+func (s *Server) stopRecording(w http.ResponseWriter, r *http.Request) {
+	if err := decodeJSON(r, &struct{}{}); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if _, _, _, active := s.capture.Active(); !active {
+		writeError(w, http.StatusConflict, errors.New("nothing is being recorded"))
+		return
+	}
+	s.stopActive(w)
+}
+
+func (s *Server) stopActive(w http.ResponseWriter) {
 	session, err := s.capture.Stop()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
