@@ -148,3 +148,13 @@ func TestPublishSettingsTellTheReviewPageWhetherToUpload(t *testing.T) {
 		t.Fatalf("upload page: %d", response.Code)
 	}
 }
+
+func TestPrefillTakesThePodcastChoiceFromTheProgramme(t *testing.T) {
+	f := newPublishFixture(t)
+	// The settings put talks into the podcast feed; this one is kept out.
+	f.withProgramme("Date,Title,Speakers,Podcast\r\n01/11/2026,A one-off,Jim Walford,No\r\n")
+	session := requestSession(t, f.handler, http.MethodPost, "/api/sessions/"+f.id+"/talk/prefill", `{}`)
+	if session.Talk.Title != "A one-off" || session.Talk.Podcast {
+		t.Fatalf("talk = %#v", session.Talk)
+	}
+}

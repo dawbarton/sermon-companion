@@ -290,3 +290,37 @@ func TestColumnReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestReadsWhetherATalkGoesIntoThePodcast(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "podcast.csv")
+	content := "Date,Title,Include in podcast feed\r\n" +
+		"01/11/2026,Usual,\r\n" +
+		"08/11/2026,Kept out,No\r\n" +
+		"15/11/2026,Put in,yes\r\n" +
+		"22/11/2026,From Excel,TRUE\r\n" +
+		"29/11/2026,Unclear,maybe\r\n"
+	if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Read(filename, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	describe := func(value *bool) string {
+		if value == nil {
+			return "unsaid"
+		}
+		return fmt.Sprint(*value)
+	}
+	var got []string
+	for _, row := range p.Rows {
+		got = append(got, row.Title+"="+describe(row.Podcast))
+	}
+	// An unclear cell keeps its row, with nothing said about the podcast.
+	if strings.Join(got, " ") != "Usual=unsaid Kept out=false Put in=true From Excel=true Unclear=unsaid" {
+		t.Fatalf("podcast choices = %q", got)
+	}
+	if len(p.Problems) != 1 || !strings.Contains(p.Problems[0], `Row 6: could not read "maybe"`) {
+		t.Fatalf("problems = %q", p.Problems)
+	}
+}

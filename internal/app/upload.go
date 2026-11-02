@@ -240,6 +240,9 @@ func (s *Server) suggestTalk(ctx context.Context, c config.Config, session *stor
 			notes = append(notes, match.Note)
 			if row := match.Row; row != nil {
 				talk.Title, talk.Series, talk.Passage, talk.Image = row.Title, row.Series, row.Passage, row.SeriesImage
+				if row.Podcast != nil {
+					talk.Podcast = *row.Podcast
+				}
 				talk.Speakers = append([]string{}, row.Speakers...)
 			}
 		}

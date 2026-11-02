@@ -163,8 +163,8 @@ service, from three sources in order:
    talks planned for the term, in SharePoint, synced to the church computer.
    Its row for the day of the service (and, when a day has more than one
    service, the row whose start time is nearest the recording's) gives the
-   title, speakers, series, passage, and, for the first talk of a new series,
-   a link to the series' image. Names are then given as the site spells them.
+   title, speakers, series, passage, whether the talk goes into the podcast
+   feed, and, for the first talk of a new series, a link to the series' image. Names are then given as the site spells them.
 2. **The website.** If the programme gives no series, the church's latest talk
    does. The image is the one the series' latest talk uses: every talk in a
    series on this site shares one featured image (series 738 always 16361,

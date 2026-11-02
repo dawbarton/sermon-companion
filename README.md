@@ -135,9 +135,9 @@ checked while the MP3 is made.
 
 The first time the page is opened for a service, it fills the details in:
 
-- the title, speakers, series, passage, and series image from the preaching
-  programme's row for the day of the service, choosing by service time when
-  there is more than one that day;
+- the title, speakers, series, passage, series image, and podcast choice from
+  the preaching programme's row for the day of the service, choosing by service
+  time when there is more than one that day;
 - the series of the church's latest talk on the website, if the programme gives
   none;
 - the video from the church's YouTube channel, the first published around the
@@ -207,6 +207,7 @@ ignored:
 | Series | The series name, as the website spells it. |
 | Passage | Such as `Matthew 6:9-13`, or several separated by commas. |
 | Series image | A link to the series' image on the website, needed only for the first talk of a new series. |
+| Podcast | Yes or No. No keeps that talk out of the podcast feed; left empty, `publish.podcast` decides. |
 
 A row whose date cannot be read is listed on the upload page rather than
 skipped silently. A programme kept in SharePoint and synced to the church

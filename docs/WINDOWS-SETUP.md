@@ -192,10 +192,11 @@ SETTING UP UPLOADING
 
 4. The preaching programme is a spreadsheet with a heading row containing at
    least Date, and usually Service (the start time), Title, Speakers, Series,
-   Passage, and Series image. Columns may be in any order, and any others are
-   ignored. Separate several speakers with commas. "Series image" is a link to
-   the series' picture on the website, needed only for the first talk of a new
-   series. If the programme lives in SharePoint, sync its folder through
+   Passage, Series image, and Podcast. Columns may be in any order, and any
+   others are ignored. Separate several speakers with commas. "Series image" is
+   a link to the series' picture on the website, needed only for the first talk
+   of a new series. Put No under "Podcast" to keep a talk out of the podcast
+   feed; leave it empty otherwise. If the programme lives in SharePoint, sync its folder through
    OneDrive, right-click the file in File Explorer, choose "Always keep on this
    device", and give that local path in config.json.
 

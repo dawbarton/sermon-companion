@@ -7,13 +7,14 @@
 // Columns are found by their headings, so they can be in any order and other
 // columns are ignored. Only Date is required:
 //
-//	Date | Service | Church | Title | Speakers | Series | Passage | Series image
+//	Date | Service | Church | Title | Speakers | Series | Passage | Series image | Podcast
 //
 // Service is the start time, such as 10:30, used only to choose between two
 // services on the same day. Church restricts a row to one congregation when
 // several share the spreadsheet. Several speakers are separated by commas.
 // Series image is a link to an image already on the website, needed only for
-// the first talk of a new series.
+// the first talk of a new series. Podcast is Yes or No, to keep one talk out
+// of the podcast feed; left empty, the configured default applies.
 package programme
 
 import (
@@ -45,6 +46,9 @@ type Row struct {
 	Series      string
 	Passage     string
 	SeriesImage string
+	// Podcast is whether the talk goes into the podcast feed, or nil when the
+	// programme does not say.
+	Podcast *bool
 }
 
 // Programme is what was read from the spreadsheet, including the rows that
@@ -92,6 +96,7 @@ var headings = map[string][]string{
 	"series":   {"series", "sermonseries"},
 	"passage":  {"passage", "passages", "biblepassage", "biblepassages", "reading", "bible"},
 	"image":    {"seriesimage", "image", "featuredimage", "picture"},
+	"podcast":  {"podcast", "inpodcast", "podcastfeed", "includeinpodcast", "includeinpodcastfeed"},
 }
 
 // headingRowsSearched is how far down the heading row is looked for, so that
@@ -146,6 +151,12 @@ func fromGrid(grid [][]cell, date1904 bool) (*Programme, error) {
 		}
 		service := get(row, "service")
 		minutes := readTime(service)
+		podcast, ok := readYesNo(get(row, "podcast").Text)
+		if !ok {
+			// The row is still used, with the configured podcast choice, so
+			// that one unclear cell does not lose the rest of the talk.
+			p.Problems = append(p.Problems, fmt.Sprintf("Row %d: could not read %q as Yes or No for the podcast.", line, strings.TrimSpace(get(row, "podcast").Text)))
+		}
 		p.Rows = append(p.Rows, Row{
 			Line:        line,
 			Date:        day,
@@ -157,9 +168,25 @@ func fromGrid(grid [][]cell, date1904 bool) (*Programme, error) {
 			Series:      text(row, "series"),
 			Passage:     text(row, "passage"),
 			SeriesImage: strings.TrimSpace(get(row, "image").Text),
+			Podcast:     podcast,
 		})
 	}
 	return p, nil
+}
+
+// readYesNo reads a yes-or-no cell. An empty cell says nothing, and is not
+// a problem; anything it cannot read is.
+func readYesNo(text string) (*bool, bool) {
+	yes, no := true, false
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "":
+		return nil, true
+	case "yes", "y", "true", "1", "include", "included":
+		return &yes, true
+	case "no", "n", "false", "0", "exclude", "excluded":
+		return &no, true
+	}
+	return nil, false
 }
 
 func headingKey(text string) string {
