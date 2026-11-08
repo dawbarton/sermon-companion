@@ -9,6 +9,8 @@ package publish
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/dawbarton/sermon-companion/internal/store"
 )
@@ -66,7 +68,7 @@ func ReviewTalk(lists Lists, talk Talk, typeName string) Review {
 		problem("The talk needs a title.")
 	}
 	if term, err := existing(lists.Churches, talk.Church, "church"); err != nil {
-		problem("%s.", capitalise(err.Error()))
+		problem("%s.", Capitalise(err.Error()))
 	} else {
 		r.church = term
 	}
@@ -74,7 +76,7 @@ func ReviewTalk(lists Lists, talk Talk, typeName string) Review {
 		typeName = "Sermon"
 	}
 	if term, err := existing(lists.Types, typeName, "resource type"); err != nil {
-		problem("%s.", capitalise(err.Error()))
+		problem("%s.", Capitalise(err.Error()))
 	} else {
 		r.kind = term
 	}
@@ -99,9 +101,9 @@ func ReviewTalk(lists Lists, talk Talk, typeName string) Review {
 
 	books, err := PassageBooks(talk.Passage)
 	if err != nil {
-		problem("%s.", capitalise(strings.TrimSuffix(err.Error(), ".")))
+		problem("%s.", Capitalise(strings.TrimSuffix(err.Error(), ".")))
 	} else if terms, err := BookTerms(books, lists.Books); err != nil {
-		problem("%s.", capitalise(strings.TrimSuffix(err.Error(), ".")))
+		problem("%s.", Capitalise(strings.TrimSuffix(err.Error(), ".")))
 	} else {
 		r.books = terms
 		for _, term := range terms {
@@ -169,9 +171,13 @@ func quotedList(names []string) string {
 	return strings.Join(quoted[:len(quoted)-1], ", ") + " or " + quoted[len(quoted)-1]
 }
 
-func capitalise(text string) string {
-	if text == "" {
+// Capitalise gives a message a capital first letter, for the start of a
+// sentence shown to the operator. Messages can begin with a name, so the first
+// letter is taken as a whole character rather than a byte.
+func Capitalise(text string) string {
+	first, size := utf8.DecodeRuneInString(text)
+	if first == utf8.RuneError {
 		return text
 	}
-	return strings.ToUpper(text[:1]) + text[1:]
+	return string(unicode.ToUpper(first)) + text[size:]
 }

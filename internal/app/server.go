@@ -377,12 +377,13 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
+	notRecording := errors.New("this session is not recording")
 	id, _, _, active := s.capture.Active()
 	if !active || id != r.PathValue("id") {
-		writeError(w, http.StatusConflict, errors.New("this session is not recording"))
+		writeError(w, http.StatusConflict, notRecording)
 		return
 	}
-	s.stopActive(w)
+	s.stopActive(w, notRecording)
 }
 
 // stopRecording stops whatever is being recorded. The OBS script calls it when
@@ -393,15 +394,24 @@ func (s *Server) stopRecording(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	// The OBS script recognises this answer as nothing to do.
+	notRecording := errors.New("nothing is being recorded")
 	if _, _, _, active := s.capture.Active(); !active {
-		writeError(w, http.StatusConflict, errors.New("nothing is being recorded"))
+		writeError(w, http.StatusConflict, notRecording)
 		return
 	}
-	s.stopActive(w)
+	s.stopActive(w, notRecording)
 }
 
-func (s *Server) stopActive(w http.ResponseWriter) {
+// stopActive stops the recording. One that ends between the caller's check and
+// the stop, as when the dock's Stop and the end of the stream arrive together,
+// is answered as though it had already ended, not as a failure.
+func (s *Server) stopActive(w http.ResponseWriter, notRecording error) {
 	session, err := s.capture.Stop()
+	if errors.Is(err, capture.ErrNotRecording) {
+		writeError(w, http.StatusConflict, notRecording)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

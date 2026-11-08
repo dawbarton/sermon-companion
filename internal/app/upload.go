@@ -234,7 +234,7 @@ func (s *Server) suggestTalk(ctx context.Context, c config.Config, session *stor
 		read, err := s.readProgramme(*c.Publish)
 		switch {
 		case err != nil:
-			notes = append(notes, capitalise(err.Error())+".")
+			notes = append(notes, publish.Capitalise(err.Error())+".")
 		default:
 			match := read.Find(talk.Church, session.StartedAt)
 			notes = append(notes, match.Note)
@@ -268,7 +268,7 @@ func (s *Server) suggestTalk(ctx context.Context, c config.Config, session *stor
 		videos, err := s.channelVideos(ctx, channel)
 		switch {
 		case err != nil:
-			notes = append(notes, capitalise(err.Error())+".")
+			notes = append(notes, publish.Capitalise(err.Error())+".")
 		default:
 			if video, ok := publish.ChooseVideo(videos, session.StartedAt); ok {
 				talk.VideoURL = video.URL()
@@ -363,7 +363,7 @@ func (s *Server) checkTalk(w http.ResponseWriter, r *http.Request) {
 func (s *Server) checkOnline(ctx context.Context, c config.Config, catalogue *publish.Catalogue, talk *store.Talk, check *talkCheck) {
 	client, err := s.client(c)
 	if err != nil {
-		check.Notes = append(check.Notes, capitalise(err.Error())+".")
+		check.Notes = append(check.Notes, publish.Capitalise(err.Error())+".")
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
@@ -374,7 +374,7 @@ func (s *Server) checkOnline(ctx context.Context, c config.Config, catalogue *pu
 		image, err := s.findImage(ctx, client, reference)
 		check.Image = &checkedImage{Image: image}
 		if err != nil {
-			check.Image.Error = capitalise(err.Error()) + "."
+			check.Image.Error = publish.Capitalise(err.Error()) + "."
 		}
 	case catalogue != nil && talk.Series != "":
 		if match := publish.MatchTerm(catalogue.Series, talk.Series); match.Exact != nil {
@@ -388,7 +388,7 @@ func (s *Server) checkOnline(ctx context.Context, c config.Config, catalogue *pu
 				image, err := s.findImage(ctx, client, fmt.Sprint(id))
 				check.Image = &checkedImage{Image: image, FromSeries: true}
 				if err != nil {
-					check.Image.Error = capitalise(err.Error()) + "."
+					check.Image.Error = publish.Capitalise(err.Error()) + "."
 				}
 			}
 		}
@@ -484,11 +484,4 @@ func (s *Server) publishSettings(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "site": c.Publish.Site, "status": c.Publish.PublishStatus()})
-}
-
-func capitalise(text string) string {
-	if text == "" {
-		return text
-	}
-	return strings.ToUpper(text[:1]) + text[1:]
 }

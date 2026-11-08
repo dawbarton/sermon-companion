@@ -63,10 +63,6 @@ func (s *Server) startPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if exporting, _ := s.busy(id); exporting {
-		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to be created before publishing it"))
-		return
-	}
 	dir, err := s.store.SessionDir(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
@@ -85,6 +81,15 @@ func (s *Server) startPublish(w http.ResponseWriter, r *http.Request) {
 		s.jobsMu.Unlock()
 		cancel()
 		writeError(w, http.StatusConflict, errors.New("this talk is already being uploaded"))
+		return
+	}
+	// Checked under the same lock that registers the upload, as the export
+	// checks for an upload, so that the two cannot both start: the export
+	// would replace the MP3 the upload is reading.
+	if _, exporting := s.jobs[id]; exporting {
+		s.jobsMu.Unlock()
+		cancel()
+		writeError(w, http.StatusConflict, errors.New("wait for the MP3 to be created before publishing it"))
 		return
 	}
 	s.jobs[publishJob(id)] = cancel
@@ -286,7 +291,7 @@ func sameTime(a, b *time.Time) bool {
 // explainPublishError turns a failure into what the operator should be told,
 // with what to do about it.
 func explainPublishError(ctx context.Context, err error) string {
-	message := capitalise(err.Error())
+	message := publish.Capitalise(err.Error())
 	if !strings.HasSuffix(message, ".") {
 		message += "."
 	}

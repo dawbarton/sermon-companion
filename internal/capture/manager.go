@@ -288,12 +288,16 @@ func (m *Manager) wait(run *running) {
 	close(run.finished)
 }
 
+// ErrNotRecording is Stop's answer when there is nothing to stop, including
+// when the recording ended between a caller seeing it and asking to stop it.
+var ErrNotRecording = errors.New("no recording is in progress")
+
 func (m *Manager) Stop() (*store.Session, error) {
 	m.mu.Lock()
 	run := m.run
 	if run == nil {
 		m.mu.Unlock()
-		return nil, errors.New("no recording is in progress")
+		return nil, ErrNotRecording
 	}
 	position := run.capture.PositionAt(time.Now())
 	if _, err := m.store.Update(run.id, "segments.closed_on_stop", position, func(s *store.Session) error {

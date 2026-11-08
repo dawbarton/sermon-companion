@@ -53,3 +53,11 @@ func TestReviewTalkSaysWhatEachNameIs(t *testing.T) {
 		}
 	}
 }
+
+func TestCapitaliseTakesTheWholeFirstLetter(t *testing.T) {
+	for in, want := range map[string]string{"": "", "the site": "The site", "émile was not found": "Émile was not found", "42 talks": "42 talks"} {
+		if got := Capitalise(in); got != want {
+			t.Errorf("Capitalise(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

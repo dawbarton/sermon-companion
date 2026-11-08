@@ -62,7 +62,9 @@ async function refreshCheck(refresh) {
 // already out of date. Each change sets only its own fields, so one refused
 // because the service changed elsewhere is sent again once against the
 // latest revision. A change still refused puts back what is saved, which is
-// what would be published.
+// what would be published. A change made from the saved list of speakers is
+// given as a function, so that it is worked out from the list as the changes
+// queued before it left it, not as it was when the button was pressed.
 let saves = Promise.resolve();
 function saveTalk(change) {
   saves = saves.then(() => sendTalk(change));
@@ -70,7 +72,8 @@ function saveTalk(change) {
 }
 
 async function sendTalk(change) {
-  const send = () => api(`/api/sessions/${sessionID}/talk`, {method: "PATCH", body: JSON.stringify(change), headers: {"If-Match": `"${session.revision}"`}});
+  const body = () => JSON.stringify(typeof change === "function" ? change() : change);
+  const send = () => api(`/api/sessions/${sessionID}/talk`, {method: "PATCH", body: body(), headers: {"If-Match": `"${session.revision}"`}});
   try {
     try {
       session = await send();
@@ -150,20 +153,20 @@ function speakerRow(name, index) {
   remove.title = name ? `Remove ${name}` : "Remove";
   remove.addEventListener("click", () => {
     pendingSpeaker = false;
-    saveTalk({speakers: (talk().speakers || []).filter((_, i) => i !== index)});
+    if (!name) { renderSpeakers(); return; }
+    saveTalk(() => ({speakers: (talk().speakers || []).filter(n => !sameName(n, name))}));
   });
   line.append(input, remove);
-  row.append(line, nameCheck(check?.review?.speakers?.find(c => c.name.toLowerCase() === name.toLowerCase()), "speaker", isNew => {
+  row.append(line, nameCheck(check?.review?.speakers?.find(c => sameName(c.name, name)), "speaker", isNew => saveTalk(() => {
     const confirmed = new Set((talk().newSpeakers || []).map(n => n.toLowerCase()));
     if (isNew) confirmed.add(name.toLowerCase()); else confirmed.delete(name.toLowerCase());
-    saveTalk({newSpeakers: (talk().speakers || []).filter(n => confirmed.has(n.toLowerCase()))});
-  }, suggestion => {
-    const speakers = [...(talk().speakers || [])];
-    speakers[index] = suggestion;
-    saveTalk({speakers});
-  }));
+    return {newSpeakers: (talk().speakers || []).filter(n => confirmed.has(n.toLowerCase()))};
+  }), suggestion => saveTalk(() => ({speakers: (talk().speakers || []).map(n => sameName(n, name) ? suggestion : n)}))));
   return row;
 }
+
+// Speakers are told apart regardless of capitals, as the server does.
+function sameName(a, b) { return a.toLowerCase() === b.toLowerCase(); }
 
 // nameCheck says what the website makes of a name it does not have exactly:
 // the near names it might be a slip for, and a box to confirm it is new.

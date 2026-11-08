@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -62,5 +63,23 @@ func TestStopRecordingStopsWhateverIsRecording(t *testing.T) {
 	}
 	if _, _, _, active := server.capture.Active(); active {
 		t.Fatal("still recording after the stop")
+	}
+}
+
+// A stop that arrives just after the recording ended, as when the dock's Stop
+// and the end of the stream arrive together, is answered as nothing to stop
+// rather than as a failure, so that the OBS script does not report one.
+func TestAStopThatLosesTheRaceIsNotAFailure(t *testing.T) {
+	sessions, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := config.DefaultConfig()
+	settings := config.NewSettings("", c)
+	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
+	response := httptest.NewRecorder()
+	server.stopActive(response, errors.New("nothing is being recorded"))
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "nothing is being recorded") {
+		t.Fatalf("stop after the recording ended: %d %s", response.Code, response.Body.String())
 	}
 }
