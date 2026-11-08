@@ -122,10 +122,11 @@ and the talk appears on the website without anyone signing in to it.
 
 > [!IMPORTANT]
 > Uploading works with the WordPress church websites built by
-> [Nine Foot One](https://www.ninefootone.co.uk), which keep talks as a
-> `resource` post type, with speakers, series, and Bible books as taxonomies and
-> the audio in Advanced Custom Fields. As it stands, it will not work with a site
-> laid out differently, or with a sermon plugin. If you would like it to work
+> [ninefootone.co.uk](https://www.ninefootone.co.uk) and should be
+> straightforward to modify for other WordPress sites. Those websites keep talks
+> as a `resource` post type, with speakers, series, and Bible books as
+> taxonomies and the audio in Advanced Custom Fields; a site laid out
+> differently needs changes to `internal/publish`. If you would like it to work
 > with yours, please
 > [open an issue](https://github.com/dawbarton/sermon-companion/issues/new)
 > describing your site.
