@@ -109,12 +109,13 @@ are joined with a short silence between them.
 
 ## Uploading to the church website
 
-Uploading is switched on by adding a `publish` section. It is written for a
-WordPress website that keeps talks as a `resource` post type, with speakers,
-series, church, and Bible book as taxonomies and the audio and passage in
-Advanced Custom Fields writable over the REST API. It will not work with a site
-laid out differently, or with a sermon plugin, without changes to
-`internal/publish`; please [open an issue](https://github.com/dawbarton/sermon-companion/issues)
+Uploading is switched on by adding a `publish` section. It works with the
+WordPress church websites built by [Nine Foot One](https://www.ninefootone.co.uk),
+which keep talks as a `resource` post type, with speakers, series, church, and
+Bible book as taxonomies and the audio and passage in Advanced Custom Fields
+writable over the REST API. It will not work with a site laid out differently,
+or with a sermon plugin, without changes to `internal/publish`; please
+[open an issue](https://github.com/dawbarton/sermon-companion/issues)
 describing your site if you would like it to.
 
 ### Setting it up

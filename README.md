@@ -121,10 +121,12 @@ the church's YouTube channel. The operator checks them and presses **Publish**,
 and the talk appears on the website without anyone signing in to it.
 
 > [!IMPORTANT]
-> Uploading currently fits one kind of WordPress website: talks kept as a
+> Uploading works with the WordPress church websites built by
+> [Nine Foot One](https://www.ninefootone.co.uk), which keep talks as a
 > `resource` post type, with speakers, series, and Bible books as taxonomies and
 > the audio in Advanced Custom Fields. As it stands, it will not work with a site
-> laid out differently, or with a sermon plugin. If you would like it to work with yours, please
+> laid out differently, or with a sermon plugin. If you would like it to work
+> with yours, please
 > [open an issue](https://github.com/dawbarton/sermon-companion/issues/new)
 > describing your site.
 

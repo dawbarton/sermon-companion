@@ -177,6 +177,10 @@ recording in progress safely first.
 
 SETTING UP UPLOADING
 
+Uploading works with the WordPress church websites built by Nine Foot One
+(https://www.ninefootone.co.uk). A website laid out differently, or one using
+a sermon plugin, is not supported.
+
 1. On the church website, choose the account that will upload. It needs the
    Author role and nothing more. Under Users, Profile, Application Passwords,
    create a password named "Sermon Companion" and copy it.
