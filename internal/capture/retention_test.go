@@ -92,3 +92,23 @@ func TestApplyRetentionKeepsEveryServiceWhenDisabled(t *testing.T) {
 		t.Fatalf("service deleted with retention disabled: %v", err)
 	}
 }
+
+// Retention deletes a service's publish record with it. When an upload stopped
+// part-way, that record is the only note of what it left on the website, so
+// the deletion says what that was.
+func TestRetentionSaysWhatAnUnfinishedUploadLeft(t *testing.T) {
+	session := &store.Session{Publish: &store.PublishInfo{Site: "https://church.example", Progress: store.PublishProgress{
+		PostID: 41, MediaID: 42, Speakers: map[string]int{"Ann Other": 7},
+	}}}
+	want := `its upload to https://church.example did not finish and left draft talk 41, MP3 42, speaker "Ann Other" (7) there`
+	if got := unfinishedUpload(session); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	session.Publish.Progress.Finished = true
+	if got := unfinishedUpload(session); got != "" {
+		t.Fatalf("a finished upload was reported: %q", got)
+	}
+	if got := unfinishedUpload(&store.Session{}); got != "" {
+		t.Fatalf("a service never uploaded was reported: %q", got)
+	}
+}

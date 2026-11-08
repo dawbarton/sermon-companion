@@ -276,7 +276,10 @@ a retention period at start-up: a session directory is deleted outright once the
 service is older than `retentionDays`, defaulting to 60. This takes the exports
 with it. The MP3 is produced for the church website and the copy of record lives
 there, so nothing on this machine is intended to be permanent. A deletion is
-logged when it happens, because the session's own journal goes with it. Setting
+logged when it happens, because the session's own journal goes with it. A
+service whose upload stopped part-way also takes with it the only record of
+the draft talk, file, and names that upload left on the website, so the log
+line lists their IDs. Setting
 `retentionDays` to zero keeps every service indefinitely.
 
 The current MP3 name is deterministic from the local service date and a

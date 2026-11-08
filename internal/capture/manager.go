@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -174,9 +175,38 @@ func (m *Manager) ApplyRetention(now time.Time) ([]string, error) {
 		if err := m.store.Delete(session.ID); err != nil {
 			return deleted, fmt.Errorf("delete expired service %s: %w", session.ID, err)
 		}
+		if note := unfinishedUpload(session); note != "" {
+			log.Printf("deleted service %s: %s", session.ID, note)
+		}
 		deleted = append(deleted, session.ID)
 	}
 	return deleted, nil
+}
+
+// unfinishedUpload describes what an upload that stopped part-way left on the
+// website. The session's publish record is the only note of it, and retention
+// deletes that with the session, so the log keeps what someone tidying the
+// website would need to find it.
+func unfinishedUpload(session *store.Session) string {
+	p := session.Publish
+	if p == nil || p.Progress.Finished || p.Progress.Empty() {
+		return ""
+	}
+	var parts, terms []string
+	if p.Progress.PostID != 0 {
+		parts = append(parts, fmt.Sprintf("draft talk %d", p.Progress.PostID))
+	}
+	if p.Progress.MediaID != 0 {
+		parts = append(parts, fmt.Sprintf("MP3 %d", p.Progress.MediaID))
+	}
+	for name, id := range p.Progress.Speakers {
+		terms = append(terms, fmt.Sprintf("speaker %q (%d)", name, id))
+	}
+	for name, id := range p.Progress.Series {
+		terms = append(terms, fmt.Sprintf("series %q (%d)", name, id))
+	}
+	sort.Strings(terms)
+	return fmt.Sprintf("its upload to %s did not finish and left %s there", p.Site, strings.Join(append(parts, terms...), ", "))
 }
 
 func (m *Manager) Start(title string) (*store.Session, error) {
