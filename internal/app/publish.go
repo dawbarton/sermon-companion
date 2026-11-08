@@ -3,6 +3,7 @@
 // site gives is recorded in the session's journal as soon as it is given, so
 // that a failed upload carries on from where it stopped when Publish is
 // pressed again rather than creating anything twice.
+
 package app
 
 import (
