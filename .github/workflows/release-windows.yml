@@ -58,6 +58,15 @@ jobs:
               }
           }
           "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # An artefact name may not contain a slash, and a branch given to a
+          # manual run usually does. A release keeps its tag in the name; a
+          # manual run is named by its version and commit instead.
+          if ($env:EVENT_NAME -eq "push") {
+              $artifact = "SermonCompanion-$env:RELEASE_TAG-windows-x86_64"
+          } else {
+              $artifact = "SermonCompanion-v$version-$($env:GITHUB_SHA.Substring(0, 7))-windows-x86_64"
+          }
+          "ARTIFACT_NAME=$artifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Test with native capture enabled
         shell: pwsh
@@ -98,7 +107,7 @@ jobs:
       - name: Retain workflow artefacts
         uses: actions/upload-artifact@v6
         with:
-          name: SermonCompanion-${{ github.ref_name }}-windows-x86_64
+          name: ${{ env.ARTIFACT_NAME }}
           path: release/*
           if-no-files-found: error
 
