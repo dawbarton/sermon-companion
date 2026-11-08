@@ -1,6 +1,10 @@
 SERMON COMPANION: WINDOWS SETUP AND OPERATOR NOTES
 =================================================
 
+The full documentation, including a reference for every setting, is at
+https://github.com/dawbarton/sermon-companion. Problems and questions are
+welcome there as issues.
+
 PACKAGE CONTENTS
 
 Keep these files together in one folder:
@@ -37,7 +41,8 @@ ONE-TIME TECHNICAL SETUP
    Windows may hide it under the arrow there; drag it onto the taskbar so that
    the operator can see whether the application is running.
 
-2. In OBS, choose View, Docks, Custom Browser Docks. Add:
+2. In OBS, choose Docks, Custom Browser Docks (View, Docks in older versions
+   of OBS). Add:
 
      Dock name: Sermon recording
      URL:       http://127.0.0.1:8765/dock
@@ -210,8 +215,9 @@ SETTING UP UPLOADING
 
 5. A site that runs the Defender security plugin needs a short WPCode snippet
    before application passwords work: without it every upload fails with a
-   message that the website ignored the sign-in. The snippet and the reason for
-   it are in docs\SERMON-UPLOAD-DESIGN.md.
+   message that the website ignored the sign-in. What the snippet has to do,
+   and why, is described under "Credentials" in docs/SERMON-UPLOAD-DESIGN.md,
+   at the address at the top of these notes.
 
 6. Try a private upload of a test recording, check it on the website while
    signed in, and delete it there.

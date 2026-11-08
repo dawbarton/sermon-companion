@@ -17,7 +17,13 @@ the device is exclusive, add an OBS raw-mix source feeding the existing PCM
 queue rather than redesigning the session, editing, or mastering layers.
 
 Read `README.md`, `docs/ARCHITECTURE.md`, and `docs/WINDOWS-SETUP.md` before
-changing user-visible behaviour or deployment.
+changing user-visible behaviour or deployment. The README is the end user's
+introduction and quick start, and stays short: detail belongs in
+`docs/USER-GUIDE.md` (using the application), `docs/CONFIGURATION.md` (every
+setting, uploading, and the preaching programme), or `docs/WINDOWS-SETUP.md`
+(the operator notes shipped in the release ZIP as `README.txt`, which cannot
+link to the other documents), and is signposted from the README.
+`CONTRIBUTING.md` covers building, checks, and releases.
 
 ## Non-negotiable product invariants
 
@@ -305,8 +311,11 @@ use it to validate a release commit before tagging.
   with audio permission and cannot be claimed from a sandbox exposing only a
   null device.
 - Use British English in UI text and documentation.
-- Keep `README.md`, architecture notes, and Windows operator instructions in
-  step with user-visible or deployment changes.
+- Keep `README.md`, the user guide, the settings reference, architecture
+  notes, and Windows operator instructions in step with user-visible or
+  deployment changes. `internal/config/docs_test.go` fails if
+  `docs/CONFIGURATION.md` does not name every field of `config.json`, or if a
+  JSON example in it or in the README is refused by the application.
 
 ## Git and deliverables
 
