@@ -517,7 +517,10 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 	end := request.End
 	startFrame, endFrame := secondsToFrame(request.Start, rate), secondsToFrame(request.End, rate)
 	segment := store.Segment{ID: store.NewObjectID("seg"), Kind: request.Kind, Label: request.Label, StartFrame: startFrame, EndFrame: &endFrame, Start: request.Start, End: &end, Include: include, CreatedAt: now, UpdatedAt: now}
-	payload := map[string]any{"requested": segment}
+	// The request is copied: snapping below writes through the end-frame
+	// pointer, and the journal must keep what was asked for beside what was
+	// committed.
+	payload := map[string]any{"requested": cloneSegmentValue(segment)}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.added_manually", payload, func(session *store.Session) error {
 		if session.Status == "recording" || session.Status == "starting" {
 			return errors.New("use the OBS dock to mark segments while recording")
@@ -621,7 +624,8 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		if segment == nil || segment.Archived {
 			return errors.New("segment not found")
 		}
-		payload["before"] = cloneSegmentValue(*segment)
+		previous := cloneSegmentValue(*segment)
+		payload["before"] = previous
 		if request.Kind != nil && strings.TrimSpace(*request.Kind) != "" {
 			segment.Kind = strings.TrimSpace(*request.Kind)
 		}
@@ -657,6 +661,13 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := store.ValidateNoSegmentOverlaps(session.Segments); err != nil {
 			return err
+		}
+		// A click on a segment in the waveform is a drag that went nowhere,
+		// and a typed time can round back to the stored one. Neither changes
+		// the MP3, so neither may make it stale.
+		if sameSegmentContent(previous, *segment) {
+			payload["after"] = cloneSegmentValue(*segment)
+			return nil
 		}
 		segment.UpdatedAt = time.Now().UTC()
 		payload["after"] = cloneSegmentValue(*segment)
@@ -1113,6 +1124,15 @@ func cloneSegmentValue(segment store.Segment) store.Segment {
 		segment.End = &end
 	}
 	return segment
+}
+
+// sameSegmentContent reports whether two versions of a segment would put the
+// same audio, under the same label, into the MP3. The seconds fields are
+// derived from the frames and are not compared.
+func sameSegmentContent(a, b store.Segment) bool {
+	sameEnd := (a.EndFrame == nil) == (b.EndFrame == nil) && (a.EndFrame == nil || *a.EndFrame == *b.EndFrame)
+	return a.Kind == b.Kind && a.Label == b.Label && a.Include == b.Include && a.Archived == b.Archived &&
+		a.StartFrame == b.StartFrame && sameEnd
 }
 
 func floatPointer(v float64) *float64 { return &v }

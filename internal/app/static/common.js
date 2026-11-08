@@ -28,6 +28,13 @@ window.SC = {
     for (const part of parts) result = result * 60 + part;
     return result;
   },
+  // Whether a typed time is the one a box shows for a stored time. Boxes show
+  // tenths of a second, so an untouched box reads back slightly differently
+  // from the frame-exact time behind it.
+  sameDisplayedTime(typed, stored) {
+    if (stored == null || !Number.isFinite(Number(stored))) return false;
+    return Math.abs(typed-window.SC.parseTime(window.SC.formatTime(stored, true))) < 1e-6;
+  },
   // Suggest the first usable interval at or after the cursor. Complete,
   // non-archived segments reserve their intervals whether or not they are
   // included in the MP3, matching the backend overlap rule.

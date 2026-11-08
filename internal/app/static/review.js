@@ -1,5 +1,5 @@
 "use strict";
-const {api, formatTime, parseTime, suggestSegmentRange, splittableSegmentAt} = window.SC;
+const {api, formatTime, parseTime, sameDisplayedTime, suggestSegmentRange, splittableSegmentAt} = window.SC;
 const elementIDs = [
   "session-list", "empty", "detail", "session-heading",
   "session-meta", "session-notice", "audio", "open-folder",
@@ -312,11 +312,17 @@ async function saveSegmentRow(segment, row) {
     showError(error); render(); return;
   }
   const include = field("include").checked, label = field("label").value.trim();
-  const unchanged = include === segment.include && label === segment.label &&
-    Math.abs(startSeconds-segment.startSeconds) < .05 && Math.abs(endSeconds-segment.endSeconds) < .05;
-  if (unchanged) return;
+  // Only what the operator changed is sent. The boxes show times to a tenth of
+  // a second, so sending a time that was merely displayed would move a
+  // frame-exact boundary marked in the dock whenever the label was renamed.
+  const change = {};
+  if (include !== segment.include) change.include = include;
+  if (label !== segment.label) change.label = label;
+  if (!sameDisplayedTime(startSeconds, segment.startSeconds)) change.startSeconds = startSeconds;
+  if (!sameDisplayedTime(endSeconds, segment.endSeconds)) change.endSeconds = endSeconds;
+  if (Object.keys(change).length === 0) return;
   try {
-    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({include, label, startSeconds, endSeconds})});
+    await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify(change)});
     elements.error.textContent = "";
   } catch (error) { showError(error); }
   // A rejected change is redrawn from the stored segment, so what is on screen
@@ -535,6 +541,9 @@ async function finishDrag() {
   const segment = current.segments.find(item => item.id === state.segmentID);
   drawSegments();
   if (!segment) return;
+  // A click on a segment is a drag that went nowhere; it changes nothing, so
+  // nothing is saved.
+  if (segment.startSeconds === state.originalStart && segment.endSeconds === state.originalEnd) return;
   try {
     await mutateSession(`/api/sessions/${current.id}/segments/${segment.id}`, {method: "PATCH", body: JSON.stringify({startSeconds: segment.startSeconds, endSeconds: segment.endSeconds})});
     elements.error.textContent = ""; render();

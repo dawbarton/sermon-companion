@@ -46,3 +46,14 @@ test("a split candidate must contain enough audio on both sides", () => {
   assert.equal(splittableSegmentAt(19.95, [segment]), null);
   assert.equal(splittableSegmentAt(15, [{...segment, archived: true}]), null);
 });
+
+test("an untouched time box reads back as the frame-exact time behind it", () => {
+  const {sameDisplayedTime} = window.SC;
+  // A boundary marked in the dock is frame-exact; its box shows 12:34.3.
+  assert.equal(sameDisplayedTime(754.3, 754.3127), true);
+  assert.equal(sameDisplayedTime(754.4, 754.3127), false);
+  // Rounding up across a minute is the same box.
+  assert.equal(sameDisplayedTime(120, 119.98), true);
+  // A segment with no end has no displayed time to match.
+  assert.equal(sameDisplayedTime(0, null), false);
+});
