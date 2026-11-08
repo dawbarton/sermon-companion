@@ -72,7 +72,11 @@ changing user-visible behaviour or deployment.
   uploaded to the website is named the same way from the talk's own date and
   church, which the operator may have corrected on the upload page.
 - Keep the server loopback-only by default and suitable for OBS's embedded
-  Chromium browser. There is deliberately no cloud service or OBS WebSocket
+  Chromium browser. Loopback does not keep out a web page open on the same
+  computer, so `internal/app/guard.go` refuses a request that changes
+  something when its `Origin` is another site's, and any request addressed to
+  a name other than an IP address, `localhost`, or the `listen` host. Every
+  route goes through it; do not add one that bypasses `Handler`. There is deliberately no cloud service or OBS WebSocket
   dependency. The only outgoing connections are to the configured church
   website and the church channel's public YouTube feed, and only when
   `config.json` has a `publish` section; without it nothing is sent anywhere.
@@ -156,7 +160,9 @@ from the log page, and from `--version` when its output is redirected.
   would otherwise give FFmpeg and FFprobe.
 - `internal/store`: versioned session model, atomic snapshot persistence,
   append-only event journal, and segment invariants.
-- `internal/app`: loopback HTTP API and embedded dock/manager UI.
+- `internal/app`: loopback HTTP API and embedded dock/manager UI. The package
+  comment in `server.go` maps its files; handlers are grouped by what they act
+  on (sessions, segments, export, talk, upload, publish, devices).
 - `internal/waveform`: cached compact waveform envelope for long recordings.
 - `internal/master`: segment extraction, two-pass normalisation measured per
   label so that one talk cut into pieces keeps a single volume, concatenation,
@@ -183,7 +189,8 @@ from the log page, and from `--version` when its output is redirected.
   starts streaming (or recording, if chosen) and stops when it stops. It talks
   to the loopback API through LuaJIT's FFI, so it needs no OBS WebSocket and no
   library. Its tests in `obs/` run it under LuaJIT against a stand-in server and
-  are skipped when `luajit` is absent.
+  are skipped when `luajit` is absent; the Linux CI job installs it so that they
+  run there.
 - `scripts/build-windows.ps1`: distributable Windows folder builder.
 - `scripts/Start Sermon Companion.cmd`: non-technical Windows launcher.
 - `.github/workflows/release-windows.yml`: tag-driven, cgo-enabled Windows
@@ -231,6 +238,7 @@ make test
 make run-demo
 go test -race ./... -count=1
 go vet ./...
+node --check internal/app/static/common.js
 node --check internal/app/static/review.js
 node --check internal/app/static/dock.js
 node --check internal/app/static/log.js
