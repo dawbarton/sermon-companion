@@ -25,7 +25,7 @@ func TestOpenReviewPageUsesTheLoopbackAddress(t *testing.T) {
 	server.openLink = func(url string) error { opened = url; return nil }
 
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/open-review-page", strings.NewReader("{}")))
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/open-review-page", strings.NewReader("{}")))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

@@ -65,7 +65,7 @@ func TestStoppingASessionBuildsTheWaveform(t *testing.T) {
 
 	// The cached envelope is what the review page receives, so it must describe
 	// the recording rather than merely exist.
-	request := httptest.NewRequest(http.MethodGet, "/api/sessions/"+stopped.ID+"/waveform", nil)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions/"+stopped.ID+"/waveform", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {

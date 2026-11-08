@@ -40,7 +40,7 @@ func TestStopRecordingStopsWhateverIsRecording(t *testing.T) {
 	handler := server.Handler()
 	post := func(path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}")))
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1"+path, strings.NewReader("{}")))
 		return response
 	}
 

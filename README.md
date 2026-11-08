@@ -276,7 +276,7 @@ most likely to need changing are:
 | `mastering.peakLimitDB` | Ceiling, in dBFS, that the levelled audio is limited to, guarding against clipping. The default is `-1`. |
 | `mastering.gapSeconds` | Silence between parts in the MP3 for a new service, in seconds. The default is `2`, and a service can be given its own value on the review page. |
 | `publish` | Uploading to the church website; see [Setting it up](#setting-it-up). |
-| `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. |
+| `listen` | Address the application serves on. Change the port here if `8765` is already in use, and in the OBS dock address to match. Pages are opened by IP address or `localhost`; a request addressed to any other name is refused unless it is the host given here. |
 
 The application checks every setting before it starts recording or applies
 retention. Misspelt setting names and unsafe numeric values are reported as a

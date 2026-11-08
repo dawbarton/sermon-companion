@@ -30,7 +30,7 @@ func (f *publishFixture) withProgramme(content string) {
 
 func (f *publishFixture) check(query string) talkCheck {
 	f.t.Helper()
-	request := httptest.NewRequest(http.MethodGet, "/api/sessions/"+f.id+"/talk/check"+query, nil)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions/"+f.id+"/talk/check"+query, nil)
 	response := httptest.NewRecorder()
 	f.handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -135,13 +135,13 @@ func TestCheckSaysWhatTheWebsiteWillMakeOfTheTalk(t *testing.T) {
 
 func TestPublishSettingsTellTheReviewPageWhetherToUpload(t *testing.T) {
 	f := newPublishFixture(t)
-	request := httptest.NewRequest(http.MethodGet, "/api/publish", nil)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/publish", nil)
 	response := httptest.NewRecorder()
 	f.handler.ServeHTTP(response, request)
 	if !strings.Contains(response.Body.String(), `"enabled":true`) || strings.Contains(response.Body.String(), "abcd") {
 		t.Fatalf("publish settings = %s", response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodGet, "/upload?session="+f.id, nil)
+	request = httptest.NewRequest(http.MethodGet, "http://127.0.0.1/upload?session="+f.id, nil)
 	response = httptest.NewRecorder()
 	f.handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "upload.js") {

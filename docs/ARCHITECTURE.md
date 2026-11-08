@@ -386,7 +386,18 @@ reports and records the chosen capture device, and serves the running log. It ca
 ask the operating system to open the MP3 folder, the log folder, or the review
 page, because the dock runs inside OBS's embedded browser where an ordinary link
 would open in the dock panel itself. The server listens on loopback by
-default and sets a restrictive content-security policy. It has no OBS
+default and sets a restrictive content-security policy.
+
+Listening on loopback keeps other computers out, but not a web page open in a
+browser on this one, which can send a form-style POST to `127.0.0.1` without
+asking first: enough to stop a recording or change the capture device during a
+service. A request that changes something and names the page that sent it in
+`Origin` must therefore come from a page this server served; the dock and
+review pages send their own origin, and the OBS script sends none. Every
+request must also be addressed, in `Host`, to an IP address, `localhost`, or
+the host in the `listen` setting, so that a page whose own name is made to
+resolve to `127.0.0.1` after it has loaded (DNS rebinding) cannot read or change
+anything either. It has no OBS
 WebSocket dependency, and makes no outgoing connection unless uploading to the
 church website is configured. Live status includes the audio-frame position and capture
 health statistics.

@@ -108,7 +108,7 @@ func TestSessionMetadataAndOpenExportFolder(t *testing.T) {
 		t.Fatalf("metadata change did not invalidate export: %#v", updated.Export)
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/open-export-folder", strings.NewReader(`{}`))
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/sessions/"+session.ID+"/open-export-folder", strings.NewReader(`{}`))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -144,7 +144,7 @@ func TestManualSegmentValidatesRecordingBounds(t *testing.T) {
 	c := config.DefaultConfig()
 	settings := config.NewSettings("", c)
 	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/segments/manual", strings.NewReader(`{"label":"Invalid","startSeconds":10,"endSeconds":30}`))
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/sessions/"+session.ID+"/segments/manual", strings.NewReader(`{"label":"Invalid","startSeconds":10,"endSeconds":30}`))
 	request.Header.Set("Content-Type", "application/json")
 	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
@@ -376,7 +376,7 @@ func TestSessionAPIRejectsMissingAndStaleRevisions(t *testing.T) {
 	handler := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles).Handler()
 	path := "/api/sessions/" + session.ID
 
-	missing := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"Missing revision"}`))
+	missing := httptest.NewRequest(http.MethodPatch, "http://127.0.0.1"+path, strings.NewReader(`{"title":"Missing revision"}`))
 	missing.Header.Set("Content-Type", "application/json")
 	missingResponse := httptest.NewRecorder()
 	handler.ServeHTTP(missingResponse, missing)
@@ -384,7 +384,7 @@ func TestSessionAPIRejectsMissingAndStaleRevisions(t *testing.T) {
 		t.Fatalf("missing revision status=%d body=%s", missingResponse.Code, missingResponse.Body.String())
 	}
 
-	first := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"First writer"}`))
+	first := httptest.NewRequest(http.MethodPatch, "http://127.0.0.1"+path, strings.NewReader(`{"title":"First writer"}`))
 	first.Header.Set("Content-Type", "application/json")
 	first.Header.Set("If-Match", fmt.Sprintf(`"%d"`, session.Revision))
 	firstResponse := httptest.NewRecorder()
@@ -393,7 +393,7 @@ func TestSessionAPIRejectsMissingAndStaleRevisions(t *testing.T) {
 		t.Fatalf("first writer status=%d body=%s", firstResponse.Code, firstResponse.Body.String())
 	}
 
-	stale := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(`{"title":"Stale writer"}`))
+	stale := httptest.NewRequest(http.MethodPatch, "http://127.0.0.1"+path, strings.NewReader(`{"title":"Stale writer"}`))
 	stale.Header.Set("Content-Type", "application/json")
 	stale.Header.Set("If-Match", fmt.Sprintf(`"%d"`, session.Revision))
 	staleResponse := httptest.NewRecorder()
@@ -412,7 +412,7 @@ func TestSessionAPIRejectsMissingAndStaleRevisions(t *testing.T) {
 
 func requestError(t *testing.T, handler http.Handler, method, path, body string, wantStatus int, wantText string) {
 	t.Helper()
-	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request := httptest.NewRequest(method, "http://127.0.0.1"+path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
@@ -424,7 +424,7 @@ func requestError(t *testing.T, handler http.Handler, method, path, body string,
 
 func requestSession(t *testing.T, handler http.Handler, method, path, body string) store.Session {
 	t.Helper()
-	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request := httptest.NewRequest(method, "http://127.0.0.1"+path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	setCurrentRevisionHeader(t, handler, request)
 	response := httptest.NewRecorder()
@@ -446,7 +446,7 @@ func setCurrentRevisionHeader(t *testing.T, handler http.Handler, request *http.
 		return
 	}
 	lookup := httptest.NewRecorder()
-	handler.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "/api/sessions/"+parts[2], nil))
+	handler.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions/"+parts[2], nil))
 	if lookup.Code != http.StatusOK {
 		return
 	}

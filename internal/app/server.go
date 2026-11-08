@@ -137,7 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /log", s.page("log.html"))
 	mux.HandleFunc("GET /upload", s.page("upload.html"))
 	mux.HandleFunc("GET /", s.page("index.html"))
-	return s.localOnlyHeaders(mux)
+	return refuseOtherSites(s.settings.Get().Listen, s.localOnlyHeaders(mux))
 }
 
 func (s *Server) localOnlyHeaders(next http.Handler) http.Handler {

@@ -29,7 +29,7 @@ func ffmpegBackedHandler(t *testing.T) http.Handler {
 // rather than being handed an empty list it would read as "no devices found".
 func TestDeviceListReportsAnUnselectableBackend(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/devices", nil))
+	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/devices", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
@@ -53,7 +53,7 @@ func TestDeviceListReportsAnUnselectableBackend(t *testing.T) {
 
 func TestSelectingADeviceIsRefusedWhenNoneCanBeListed(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/devices", strings.NewReader(`{"id":"anything"}`))
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/devices", strings.NewReader(`{"id":"anything"}`))
 	ffmpegBackedHandler(t).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", recorder.Code)
@@ -108,7 +108,7 @@ func TestLogReportsTheVersion(t *testing.T) {
 	server := NewServer(settings, sessions, capture.New(settings, sessions), master.New(c, sessions), StaticFiles)
 	server.SetLog(nil, "1.2.3")
 	recorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/log", nil))
+	server.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/log", nil))
 	var response struct {
 		Version string `json:"version"`
 	}
@@ -122,7 +122,7 @@ func TestLogReportsTheVersion(t *testing.T) {
 
 func TestLogIsServedWhenNoneIsConfigured(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/log", nil))
+	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/log", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
@@ -143,7 +143,7 @@ func TestLogIsServedWhenNoneIsConfigured(t *testing.T) {
 
 func TestLogPageIsServed(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/log", nil))
+	ffmpegBackedHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/log", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
 	}
@@ -158,7 +158,7 @@ func TestLogPageIsServed(t *testing.T) {
 func TestAssetsCanBeRevalidated(t *testing.T) {
 	handler := ffmpegBackedHandler(t)
 	first := httptest.NewRecorder()
-	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/assets/review.js", nil))
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/assets/review.js", nil))
 	if first.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", first.Code)
 	}
@@ -169,14 +169,14 @@ func TestAssetsCanBeRevalidated(t *testing.T) {
 	if cache := first.Header().Get("Cache-Control"); cache != "no-cache" {
 		t.Fatalf("Cache-Control = %q, want no-cache", cache)
 	}
-	repeat := httptest.NewRequest(http.MethodGet, "/assets/review.js", nil)
+	repeat := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/assets/review.js", nil)
 	repeat.Header.Set("If-None-Match", tag)
 	second := httptest.NewRecorder()
 	handler.ServeHTTP(second, repeat)
 	if second.Code != http.StatusNotModified {
 		t.Fatalf("status = %d for an unchanged asset, want 304", second.Code)
 	}
-	stale := httptest.NewRequest(http.MethodGet, "/assets/review.js", nil)
+	stale := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/assets/review.js", nil)
 	stale.Header.Set("If-None-Match", `"0000000000000000"`)
 	third := httptest.NewRecorder()
 	handler.ServeHTTP(third, stale)
@@ -189,7 +189,7 @@ func TestPagesAreNotCachedWithoutChecking(t *testing.T) {
 	handler := ffmpegBackedHandler(t)
 	for _, path := range []string{"/", "/dock", "/log"} {
 		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+path, nil))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s status = %d, want 200", path, recorder.Code)
 		}

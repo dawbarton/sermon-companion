@@ -36,7 +36,7 @@ func TestOpenConfigFileOpensTheFileInUse(t *testing.T) {
 	server.openEditor = func(p string) error { opened = p; return nil }
 
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/open-config-file", strings.NewReader(`{}`)))
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/open-config-file", strings.NewReader(`{}`)))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -71,7 +71,7 @@ func TestOpenConfigFileReportsAMissingFile(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/open-config-file", strings.NewReader(`{}`)))
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/open-config-file", strings.NewReader(`{}`)))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -90,7 +90,7 @@ func TestOpenConfigFileWithoutAConfigurationFile(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/open-config-file", strings.NewReader(`{}`)))
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/open-config-file", strings.NewReader(`{}`)))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
