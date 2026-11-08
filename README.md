@@ -121,9 +121,9 @@ the church's YouTube channel. The operator checks them and presses **Publish**,
 and the talk appears on the website without anyone signing in to it.
 
 > [!IMPORTANT]
-> Uploading works with the WordPress church websites built by
-> [ninefootone.co.uk](https://www.ninefootone.co.uk) and should be
-> straightforward to modify for other WordPress sites. Those websites keep talks
+> Uploading works with WordPress church websites built on
+> [ninefootone.co.uk](https://www.ninefootone.co.uk)'s church website design,
+> and should be straightforward to modify for other WordPress sites. Those websites keep talks
 > as a `resource` post type, with speakers, series, and Bible books as
 > taxonomies and the audio in Advanced Custom Fields; a site laid out
 > differently needs changes to `internal/publish`. If you would like it to work

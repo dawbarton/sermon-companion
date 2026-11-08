@@ -109,9 +109,10 @@ are joined with a short silence between them.
 
 ## Uploading to the church website
 
-Uploading is switched on by adding a `publish` section. It works with the
-WordPress church websites built by [ninefootone.co.uk](https://www.ninefootone.co.uk)
-and should be straightforward to modify for other WordPress sites. Those
+Uploading is switched on by adding a `publish` section. It works with
+WordPress church websites built on [ninefootone.co.uk](https://www.ninefootone.co.uk)'s
+church website design, and should be straightforward to modify for other
+WordPress sites. Those
 websites keep talks as a `resource` post type, with speakers, series, church,
 and Bible book as taxonomies and the audio and passage in Advanced Custom Fields
 writable over the REST API; a site laid out differently, or one using a sermon

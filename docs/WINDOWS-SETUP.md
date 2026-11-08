@@ -177,8 +177,9 @@ recording in progress safely first.
 
 SETTING UP UPLOADING
 
-Uploading works with the WordPress church websites built by ninefootone.co.uk
-and should be straightforward to modify for other WordPress sites. To ask about
+Uploading works with WordPress church websites built on ninefootone.co.uk's
+church website design, and should be straightforward to modify for other
+WordPress sites. To ask about
 yours, open an issue at the address at the top of these notes.
 
 1. On the church website, choose the account that will upload. It needs the
