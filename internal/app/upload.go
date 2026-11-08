@@ -341,8 +341,7 @@ func (s *Server) checkTalk(w http.ResponseWriter, r *http.Request) {
 		}
 		check.Speakers = catalogue.SpeakerNames(talk.Church)
 		check.Series = catalogue.SeriesNames(talk.Church)
-		review := publish.ReviewTalk(publish.Lists{Churches: catalogue.Churches, Types: catalogue.Types,
-			Speakers: catalogue.Speakers, Series: catalogue.Series, Books: catalogue.Books}, *talk, c.Publish.Type())
+		review := publish.ReviewTalk(catalogue.Lists, *talk, c.Publish.Type())
 		check.Review = &review
 		if session.Talk == nil {
 			review.Problems = append(review.Problems, "The talk's details have not been filled in yet.")

@@ -68,7 +68,7 @@ func (m *Master) Prepare(id string) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	if session.Status == "recording" || session.Status == "starting" {
+	if session.Recording() {
 		return nil, errors.New("stop the recording before exporting")
 	}
 	if session.Export != nil && session.Export.Status == "running" {
@@ -95,7 +95,7 @@ func (m *Master) Prepare(id string) (*Job, error) {
 
 	started := time.Now().UTC()
 	begun, err := m.store.Update(id, "export.started", map[string]any{"segments": segmentIDs(segments)}, func(s *store.Session) error {
-		if s.Status == "recording" || s.Status == "starting" {
+		if s.Recording() {
 			return errors.New("stop the recording before exporting")
 		}
 		if s.Export != nil && s.Export.Status == "running" {

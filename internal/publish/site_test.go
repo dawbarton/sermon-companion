@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -194,5 +195,36 @@ func TestChooseVideoTakesTheFirstPublishedAroundTheService(t *testing.T) {
 	}
 	if url := videos[0].URL(); url != "https://www.youtube.com/watch?v=FqAJchBCktM" {
 		t.Fatalf("URL = %q", url)
+	}
+}
+
+// The copy of the lists kept on disk holds them at the top level, as it did
+// before the lists were embedded, so that a copy kept by an earlier version is
+// still read.
+func TestTheCopyOfTheListsKeepsItsShape(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "website-lists.json")
+	earlier := `{"site":"https://church.example","fetched":"2026-11-01T10:00:00Z","churches":[{"id":3,"name":"Emmanuel"}],"types":[],"speakers":[{"id":7,"name":"Jim Walford"}],"series":[],"books":[],"recent":[]}`
+	if err := os.WriteFile(filename, []byte(earlier), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalogue, err := LoadCatalogue(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalogue.Churches) != 1 || catalogue.Speakers[0].Name != "Jim Walford" {
+		t.Fatalf("an earlier copy was not read: %#v", catalogue)
+	}
+	if err := catalogue.Save(filename); err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]json.RawMessage
+	data, _ := os.ReadFile(filename)
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"churches", "types", "speakers", "series", "books", "recent"} {
+		if _, ok := saved[key]; !ok {
+			t.Fatalf("the saved copy has no top-level %q: %s", key, data)
+		}
 	}
 }

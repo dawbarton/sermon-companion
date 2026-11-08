@@ -56,7 +56,7 @@ func (m *Manager) RecoverInterrupted() error {
 	for index := range sessions {
 		session := &sessions[index]
 		switch {
-		case session.Status == "recording" || session.Status == "starting":
+		case session.Recording():
 			if err := m.closeInterruptedRecording(c, session); err != nil {
 				return err
 			}
@@ -107,7 +107,7 @@ func (m *Manager) closeInterruptedRecording(c config.Config, session *store.Sess
 			s.AudioFile = audio.file
 		}
 		s.Error = audio.message
-		closeOpenSegments(s, Position{Frames: audio.frames, Seconds: audio.duration, Estimated: true}, ended)
+		store.CloseOpenSegments(s, audio.frames, audio.duration, ended)
 		trimSegmentsToRecording(s, audio.frames, rate, ended)
 		return nil
 	})
@@ -137,7 +137,7 @@ func (m *Manager) repairUnmeasuredLength(c config.Config, session *store.Session
 			s.AudioFile = audio.file
 		}
 		s.Error = audio.message
-		closeOpenSegments(s, Position{Frames: audio.frames, Seconds: audio.duration, Estimated: true}, now)
+		store.CloseOpenSegments(s, audio.frames, audio.duration, now)
 		trimSegmentsToRecording(s, audio.frames, rate, now)
 		return nil
 	})
@@ -161,7 +161,7 @@ func (m *Manager) ApplyRetention(now time.Time) ([]string, error) {
 	var deleted []string
 	for index := range sessions {
 		session := &sessions[index]
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			continue
 		}
 		finished := session.StartedAt
@@ -266,7 +266,7 @@ func (m *Manager) wait(run *running) {
 	}
 	_, updateErr := m.store.Update(run.id, "capture.exited", map[string]any{"error": errText, "capture": result.Info}, func(s *store.Session) error {
 		s.Status, s.Error, s.EndedAt, s.Duration, s.Capture = status, errText, &ended, duration, result.Info
-		closeOpenSegments(s, Position{Frames: result.Info.TotalFrames, Seconds: duration}, ended)
+		store.CloseOpenSegments(s, result.Info.TotalFrames, duration, ended)
 		if filepath.Base(audioPath) == "audio.flac" {
 			s.AudioFile = "audio.flac"
 		}
@@ -301,7 +301,7 @@ func (m *Manager) Stop() (*store.Session, error) {
 	}
 	position := run.capture.PositionAt(time.Now())
 	if _, err := m.store.Update(run.id, "segments.closed_on_stop", position, func(s *store.Session) error {
-		closeOpenSegments(s, position, time.Now().UTC())
+		store.CloseOpenSegments(s, position.Frames, position.Seconds, time.Now().UTC())
 		return nil
 	}); err != nil {
 		m.mu.Unlock()
@@ -392,16 +392,6 @@ func measureSessionAudio(c config.Config, sessions *store.Store, session *store.
 		return recoveredAudio{file: found, message: fmt.Sprintf("The application stopped before the recording was closed normally. The audio was retained and can still be played and exported, but its length could not be measured, so this service shows no duration: %v", measureError)}
 	}
 	return recoveredAudio{message: "The application stopped before the recording was closed normally, and its audio file could not be found. Check the session folder and log."}
-}
-
-func closeOpenSegments(session *store.Session, position Position, now time.Time) {
-	for index := range session.Segments {
-		if session.Segments[index].End == nil && position.Frames > session.Segments[index].StartFrame {
-			frames, seconds := position.Frames, position.Seconds
-			session.Segments[index].EndFrame, session.Segments[index].End = &frames, &seconds
-			session.Segments[index].UpdatedAt = now
-		}
-	}
 }
 
 // trimSegmentsToRecording reconciles what the operator marked with the audio

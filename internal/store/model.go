@@ -36,6 +36,23 @@ type Session struct {
 	Error   string       `json:"error,omitempty"`
 }
 
+// Recording reports whether the service's audio is still being captured,
+// including the moment before its first audio has arrived. A recording
+// service cannot be edited, exported, uploaded, or deleted.
+func (s *Session) Recording() bool { return s.Status == "recording" || s.Status == "starting" }
+
+// CloseOpenSegments ends every segment still open at a position after its
+// start, as when a recording stops or the next segment begins.
+func CloseOpenSegments(session *Session, frames uint64, seconds float64, now time.Time) {
+	for index := range session.Segments {
+		segment := &session.Segments[index]
+		if segment.EndFrame == nil && frames > segment.StartFrame {
+			end, endSeconds := frames, seconds
+			segment.EndFrame, segment.End, segment.UpdatedAt = &end, &endSeconds, now
+		}
+	}
+}
+
 // Talk is the description of a service's talk that the church website shows.
 type Talk struct {
 	Title string `json:"title"`

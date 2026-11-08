@@ -351,7 +351,7 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activeID, _, _, active := s.capture.Active()
-	if (active && activeID == id) || session.Status == "recording" || session.Status == "starting" {
+	if (active && activeID == id) || session.Recording() {
 		writeError(w, http.StatusConflict, errors.New("stop the recording before deleting this service"))
 		return
 	}
@@ -532,7 +532,7 @@ func (s *Server) addManualSegment(w http.ResponseWriter, r *http.Request) {
 	// committed.
 	payload := map[string]any{"requested": cloneSegmentValue(segment)}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.added_manually", payload, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("use the OBS dock to mark segments while recording")
 		}
 		if err := rejectExportMutation(session); err != nil {
@@ -624,7 +624,7 @@ func (s *Server) patchSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := map[string]any{"requested": request}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.adjusted", payload, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("segments cannot be adjusted while recording")
 		}
 		if err := rejectExportMutation(session); err != nil {
@@ -725,7 +725,7 @@ func (s *Server) splitSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := map[string]any{"requestedAtSeconds": *request.At}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.split", payload, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("segments cannot be split while recording")
 		}
 		if err := rejectExportMutation(session); err != nil {
@@ -794,7 +794,7 @@ func (s *Server) archiveSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := map[string]any{}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.archived", payload, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("segments cannot be removed while recording")
 		}
 		if err := rejectExportMutation(session); err != nil {
@@ -826,7 +826,7 @@ func (s *Server) restoreSegment(w http.ResponseWriter, r *http.Request) {
 	id, segmentID := r.PathValue("id"), r.PathValue("segmentID")
 	payload := map[string]any{"segmentId": segmentID}
 	session, err := s.store.UpdateAtRevision(id, &expected, "segment.restored", payload, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("segments cannot be restored while recording")
 		}
 		if err := rejectExportMutation(session); err != nil {
@@ -982,7 +982,7 @@ func (s *Server) audio(w http.ResponseWriter, r *http.Request) {
 	}
 	// The recording grows under a fixed name, so a partial response must never
 	// be reused for the finished file.
-	if session.Status == "recording" || session.Status == "starting" {
+	if session.Recording() {
 		w.Header().Set("Cache-Control", "no-store")
 	} else {
 		w.Header().Set("Cache-Control", "no-cache")
@@ -1095,15 +1095,6 @@ func serveFile(w http.ResponseWriter, r *http.Request, path, contentType string,
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
 }
 
-func closeOpenSegments(session *store.Session, position capture.Position, now time.Time) {
-	for index := range session.Segments {
-		if session.Segments[index].End == nil && position.Frames > session.Segments[index].StartFrame {
-			session.Segments[index].EndFrame = uint64Pointer(position.Frames)
-			session.Segments[index].End, session.Segments[index].UpdatedAt = floatPointer(position.Seconds), now
-		}
-	}
-}
-
 func closeOpenSegmentsForNext(session *store.Session, position capture.Position, now time.Time) error {
 	for index := range session.Segments {
 		open := &session.Segments[index]
@@ -1111,7 +1102,7 @@ func closeOpenSegmentsForNext(session *store.Session, position capture.Position,
 			return errRecordingNotAdvanced
 		}
 	}
-	closeOpenSegments(session, position, now)
+	store.CloseOpenSegments(session, position.Frames, position.Seconds, now)
 	return nil
 }
 

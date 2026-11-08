@@ -108,7 +108,7 @@ func (s *Server) startPublish(w http.ResponseWriter, r *http.Request) {
 	site := strings.TrimSuffix(strings.TrimSpace(c.Publish.Site), "/")
 	var export *publish.Export
 	session, err := s.store.UpdateAtRevision(id, &expected, "publish.started", nil, func(session *store.Session) error {
-		if session.Status == "recording" || session.Status == "starting" {
+		if session.Recording() {
 			return errors.New("stop the recording before publishing")
 		}
 		if session.Talk == nil {

@@ -61,7 +61,7 @@ func (g *Generator) Generate(ctx context.Context, id string) (Envelope, error) {
 	if err != nil {
 		return Envelope{}, err
 	}
-	if session.Status == "recording" || session.Status == "starting" {
+	if session.Recording() {
 		return Envelope{}, errors.New("the waveform is available after recording stops")
 	}
 	dir, _ := g.store.SessionDir(id)

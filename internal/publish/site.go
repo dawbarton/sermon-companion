@@ -32,14 +32,11 @@ const recentTalks = 100
 // Catalogue is a copy of the site's lists, kept so that the upload page works
 // from the last copy when the site cannot be reached.
 type Catalogue struct {
-	Site     string       `json:"site"`
-	Fetched  time.Time    `json:"fetched"`
-	Churches []Term       `json:"churches"`
-	Types    []Term       `json:"types"`
-	Speakers []Term       `json:"speakers"`
-	Series   []Term       `json:"series"`
-	Books    []Term       `json:"books"`
-	Recent   []RecentTalk `json:"recent"`
+	Site    string    `json:"site"`
+	Fetched time.Time `json:"fetched"`
+	// The lists are embedded, so that the file holds them at the top level.
+	Lists
+	Recent []RecentTalk `json:"recent"`
 }
 
 // RecentTalk is a talk already on the site, as far as the lists need it.
@@ -57,24 +54,11 @@ type RecentTalk struct {
 // FetchCatalogue reads the site's lists and its latest talks of the given
 // type, normally "Sermon".
 func FetchCatalogue(ctx context.Context, c *Client, typeName string) (*Catalogue, error) {
-	catalogue := &Catalogue{Site: c.base.String(), Fetched: time.Now().UTC()}
-	lists := []struct {
-		taxonomy string
-		into     *[]Term
-	}{
-		{churchTaxonomy, &catalogue.Churches},
-		{typeTaxonomy, &catalogue.Types},
-		{speakerTaxonomy, &catalogue.Speakers},
-		{seriesTaxonomy, &catalogue.Series},
-		{bookTaxonomy, &catalogue.Books},
+	lists, err := FetchLists(ctx, c)
+	if err != nil {
+		return nil, err
 	}
-	for _, list := range lists {
-		terms, err := c.Terms(ctx, list.taxonomy)
-		if err != nil {
-			return nil, err
-		}
-		*list.into = terms
-	}
+	catalogue := &Catalogue{Site: c.base.String(), Fetched: time.Now().UTC(), Lists: lists}
 	kind, err := existing(catalogue.Types, typeName, "resource type")
 	if err != nil {
 		return nil, err
