@@ -64,7 +64,9 @@ func TestDocumentedExamplesAreAccepted(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		examples := jsonExample.FindAllStringSubmatch(string(data), -1)
+		// A Windows checkout may have converted the document to CRLF.
+		text := strings.ReplaceAll(string(data), "\r\n", "\n")
+		examples := jsonExample.FindAllStringSubmatch(text, -1)
 		if len(examples) == 0 {
 			t.Errorf("%s has no JSON examples to check", document)
 		}
